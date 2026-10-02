@@ -40,6 +40,8 @@ class Document(Base):
     filename: Mapped[str] = mapped_column(String(255))
     mime: Mapped[str] = mapped_column(String(100))
     storage_key: Mapped[str] = mapped_column(String(255))
+    # encrypted JSON of key values, e.g. aadhaar number
+    fields_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now())
 
@@ -53,4 +55,4 @@ class Chunk(Base):
         "users.id", ondelete="CASCADE"), index=True)
     document_id: Mapped[int] = mapped_column(ForeignKey(
         "documents.id", ondelete="CASCADE"), index=True)
-    text: Mapped[str] = mapped_column(Text)
+    text_enc: Mapped[str] = mapped_column(Text)  # encrypted chunk text
