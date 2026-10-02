@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     sendlib_api_key: str = ""
     email_provider_order: str = "sendlib,smtp,gmail"
 
+    tesseract_cmd: str = ""
+    ocr_languages: str = "eng"
+    ocr_max_pages: int = 10
+    max_upload_mb: int = 10
+    ocr_psm: int = 11
+    ocr_channels: str = "gray,B" # "gray,B,R,G" can be added for other kinds of documents, but each extra channel adds slower OCR passes on a document that fails.
+
 
 @lru_cache
 def get_settings() -> Settings:
