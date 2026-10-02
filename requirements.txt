@@ -17,3 +17,4 @@ cryptography>=42.0
 bcrypt>=4.1
 google-api-python-client>=2.140
 google-auth-oauthlib>=1.2
+email-validator>=2.2
