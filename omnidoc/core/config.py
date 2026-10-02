@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     embedding_dim: int = 384
 
     default_llm: str = "groq"
-    default_email_provider: str = "smtp"
+    sendlib_api_url: str = "https://sendlib.samueltuoyo.com/api/send"
+    sendlib_api_key: str = ""
+    email_provider_order: str = "sendlib,smtp,gmail"
 
 
 @lru_cache
