@@ -24,9 +24,21 @@ class Settings(BaseSettings):
     embedding_cache_dir: str = "data/models"
 
     default_llm: str = "groq"
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""  # empty = same as smtp_user
+    gmail_credentials_path: str = "data/gmail/credentials.json"
+    gmail_token_path: str = "data/gmail/token.json"
+    gmail_sender: str = ""  # empty = Gmail uses the authorised account
     sendlib_api_url: str = "https://sendlib.samueltuoyo.com/api/send"
     sendlib_api_key: str = ""
-    email_provider_order: str = "sendlib,smtp,gmail"
+    sendlib_enabled: bool = False
+    sendlib_allow_attachments: bool = False
+    email_provider_order: str = "smtp,gmail,sendlib"
+    email_daily_limit_per_user: int = 10
+    email_timeout_seconds: int = 20
 
     tesseract_cmd: str = ""
     ocr_languages: str = "eng"
@@ -44,7 +56,8 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     openrouter_api_key: str = ""
     openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
-    llm_fallback_order: str = ""  # e.g. "groq,mistral". Empty = never switch provider silently
+    # e.g. "groq,mistral". Empty = never switch provider silently
+    llm_fallback_order: str = ""
     llm_timeout_seconds: int = 30
 
 

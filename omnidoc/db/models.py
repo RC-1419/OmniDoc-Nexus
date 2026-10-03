@@ -56,3 +56,15 @@ class Chunk(Base):
     document_id: Mapped[int] = mapped_column(ForeignKey(
         "documents.id", ondelete="CASCADE"), index=True)
     text_enc: Mapped[str] = mapped_column(Text)  # encrypted chunk text
+
+
+class EmailLog(Base):
+    __tablename__ = "email_log"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey(
+        "users.id", ondelete="CASCADE"), index=True)
+    to_address: Mapped[str] = mapped_column(String(255))
+    provider: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(10))  # "sent" or "failed"
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True)
