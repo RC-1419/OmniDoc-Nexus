@@ -15,10 +15,13 @@ class Settings(BaseSettings):
     vault_dir: str = "data/vault"
 
     pinecone_api_key: str = ""
+    # "shared" (filter by user_id) or "user" (namespace per user)
+    pinecone_namespace_mode: str = "shared"
     pinecone_index: str = "omnidoc-nexus"
     pinecone_region: str = "us-east-1"
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
+    embedding_cache_dir: str = "data/models"
 
     default_llm: str = "groq"
     sendlib_api_url: str = "https://sendlib.samueltuoyo.com/api/send"
@@ -30,7 +33,8 @@ class Settings(BaseSettings):
     ocr_max_pages: int = 10
     max_upload_mb: int = 10
     ocr_psm: int = 11
-    ocr_channels: str = "gray,B" # "gray,B,R,G" can be added for other kinds of documents, but each extra channel adds slower OCR passes on a document that fails.
+    # "gray,B,R,G" can be added for other kinds of documents, but each extra channel adds slower OCR passes on a document that fails.
+    ocr_channels: str = "gray,B"
 
 
 @lru_cache
