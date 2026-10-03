@@ -36,6 +36,17 @@ class Settings(BaseSettings):
     # "gray,B,R,G" can be added for other kinds of documents, but each extra channel adds slower OCR passes on a document that fails.
     ocr_channels: str = "gray,B"
 
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+    mistral_api_key: str = ""
+    mistral_model: str = "mistral-small-latest"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    openrouter_api_key: str = ""
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    llm_fallback_order: str = ""  # e.g. "groq,mistral". Empty = never switch provider silently
+    llm_timeout_seconds: int = 30
+
 
 @lru_cache
 def get_settings() -> Settings:
