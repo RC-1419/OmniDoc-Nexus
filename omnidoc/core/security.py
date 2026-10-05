@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
+import hashlib
 
 from omnidoc.core.config import get_settings
 
@@ -35,3 +36,25 @@ def decode_access_token(token: str) -> int | None:
         return int(jwt.decode(token, _secret(), algorithms=["HS256"])["sub"])
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
+
+
+def _action_secret(purpose: str) -> str:
+    """A different signing key per purpose, so a login token can never pass as a confirmation or vice versa."""
+    return hashlib.sha256(f"{_secret()}:{purpose}".encode()).hexdigest()
+
+
+def create_action_token(user_id: int, purpose: str, data: dict, minutes: int = 10) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {"uid": int(user_id), "purpose": purpose, "data": data, "iat": now,
+               "exp": now + timedelta(minutes=minutes)}
+    return jwt.encode(payload, _action_secret(purpose), algorithm="HS256")
+
+
+def decode_action_token(token: str, purpose: str, user_id: int) -> dict | None:
+    try:
+        p = jwt.decode(token, _action_secret(purpose), algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+    if p.get("purpose") != purpose or p.get("uid") != int(user_id):
+        return None
+    return p.get("data") or {}
