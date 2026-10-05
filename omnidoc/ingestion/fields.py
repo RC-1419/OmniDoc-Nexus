@@ -90,3 +90,21 @@ def suggest_doc_type(text: str, fields: dict[str, str]) -> str | None:
     if "passport_number" in fields or "passport" in low:
         return "passport"
     return None
+
+
+def normalize_field(name: str, value: str) -> str:
+    """Validate a value typed in by hand. Raises ValueError if it is not a plausible number of that kind."""
+    v = (value or "").strip().upper()
+    if name == "aadhaar_number":
+        digits = re.sub(r"[\s-]", "", v)
+        if re.fullmatch(r"[2-9]\d{11}", digits) and verhoeff_valid(digits):
+            return f"{digits[:4]} {digits[4:8]} {digits[8:]}"
+    elif name == "pan_number":
+        if _PAN.fullmatch(v):
+            return v
+    elif name == "passport_number":
+        v = v.replace(" ", "")
+        if _PASSPORT.fullmatch(v):
+            return v
+    raise ValueError(
+        f"That doesn't look like a valid {name.replace('_', ' ')}")

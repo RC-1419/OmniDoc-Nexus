@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     llm_fallback_order: str = ""
     llm_timeout_seconds: int = 30
 
+    max_documents_per_user: int = 30
+    max_people_per_user: int = 20
+
 
 @lru_cache
 def get_settings() -> Settings:
