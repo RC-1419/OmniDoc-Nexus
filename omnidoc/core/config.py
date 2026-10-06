@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     max_documents_per_user: int = 30
     max_people_per_user: int = 20
 
+    cors_origins: str = ""
+    enable_docs: bool = True
+    login_failures_per_15min: int = 10
+    signup_per_hour_per_ip: int = 5
+    chat_per_minute_per_user: int = 20
+    uploads_per_hour_per_user: int = 30
+
 
 @lru_cache
 def get_settings() -> Settings:
