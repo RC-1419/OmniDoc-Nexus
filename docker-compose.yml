@@ -1,12 +1,55 @@
+# Local run of the whole app:  docker compose up --build
+# API:  http://127.0.0.1:8000/docs     App:  http://127.0.0.1:8501
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: omnidoc
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-omnidoc}
       POSTGRES_DB: omnidoc
-    ports: ["5432:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env file}
+    volumes:
+      - omnidoc_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnidoc -d omnidoc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
     restart: unless-stopped
+    env_file: .env                      # keys: VAULT_KEY, JWT_SECRET, PINECONE_*, LLM keys, SMTP_*
+    environment:                        # these override the same names in .env
+      DATABASE_URL: postgresql+pg8000://omnidoc:${POSTGRES_PASSWORD}@db:5432/omnidoc
+      VAULT_DIR: /data/vault
+      TESSERACT_CMD: tesseract          # on Linux it is on the PATH
+    volumes:
+      - vault:/data/vault
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"           # only this computer can reach it
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  ui:
+    build: .
+    restart: unless-stopped
+    command: ["streamlit", "run", "omnidoc/ui/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--browser.gatherUsageStats=false"]
+    environment:
+      OMNIDOC_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8501:8501"
+
 volumes:
-  pgdata:
+  omnidoc_pgdata:
+  vault:

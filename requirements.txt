@@ -19,3 +19,6 @@ google-api-python-client>=2.140
 google-auth-oauthlib>=1.2
 email-validator>=2.2
 pypdfium2>=4.30
+python-dotenv
+pg8000
+pydantic[email]
