@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read          # the workflow can only read the repository
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: omnidoc
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: omnidoc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U omnidoc -d omnidoc"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # Throwaway values for this test run only. No real keys or documents are used anywhere in CI.
+      DATABASE_URL: postgresql+pg8000://omnidoc:ci_only_password@localhost:5432/omnidoc
+      VAULT_DIR: /tmp/omnidoc-vault
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Tesseract
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create throwaway keys for this run
+        run: |
+          echo "VAULT_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> "$GITHUB_ENV"
+          echo "JWT_SECRET=$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" >> "$GITHUB_ENV"
+
+      - name: Check that all code compiles
+        run: python -m compileall -q omnidoc scripts
+
+      - name: API tests (real database and file encryption; AI, vector store and email are stand-ins)
+        run: python -m scripts.try_api
+
+  docker-build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the image (not pushed anywhere yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
