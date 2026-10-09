@@ -1,8 +1,16 @@
 # Runs on the server (copy it there by hand as ~/omnidoc/docker-compose.yml with scp).
 # New images are picked up automatically by update.sh, which a scheduled job runs every 5 minutes.
 # Reads ~/omnidoc/.env for secrets. Only Caddy is reachable from the internet (ports 80 and 443).
+# All container logs go to the server's system journal, which deletes entries older than 2 weeks
+# (see the journald setting in the setup steps). View them with: journalctl -t omnidoc-api-1  (or -db-1, -ui-1, -caddy-1)
+x-logging: &logging
+  driver: journald
+  options:
+    tag: "{{.Name}}"
+
 services:
   db:
+    logging: *logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -12,12 +20,13 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U omnidoc -d omnidoc"]
+      test: [ "CMD-SHELL", "pg_isready -U omnidoc -d omnidoc" ]
       interval: 5s
       timeout: 3s
       retries: 10
 
   api:
+    logging: *logging
     image: ${IMAGE:?Set IMAGE in .env}
     restart: unless-stopped
     env_file: .env
@@ -27,23 +36,24 @@ services:
       TESSERACT_CMD: tesseract
     # --proxy-headers: use the real visitor address that Caddy forwards (needed for the per-address limits).
     # Safe here because nothing but Caddy and the UI can reach this container.
-    command: ["uvicorn", "omnidoc.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    command: [ "uvicorn", "omnidoc.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*" ]
     volumes:
       - vault:/data/vault
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      test: [ "CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)" ]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 90s
 
   ui:
+    logging: *logging
     image: ${IMAGE}
     restart: unless-stopped
-    command: ["streamlit", "run", "omnidoc/ui/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--browser.gatherUsageStats=false"]
+    command: [ "streamlit", "run", "omnidoc/ui/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--browser.gatherUsageStats=false" ]
     environment:
       OMNIDOC_API_URL: http://api:8000
     depends_on:
@@ -51,6 +61,7 @@ services:
         condition: service_healthy
 
   caddy:
+    logging: *logging
     image: caddy:2
     restart: unless-stopped
     environment:
@@ -61,7 +72,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data           # keeps the HTTPS certificates between restarts
+      - caddy_data:/data # keeps the HTTPS certificates between restarts
       - caddy_config:/config
     depends_on:
       - ui
