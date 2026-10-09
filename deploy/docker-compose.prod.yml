@@ -1,0 +1,74 @@
+# Runs on the server (copy it there by hand as ~/omnidoc/docker-compose.yml with scp).
+# New images are picked up automatically by update.sh, which a scheduled job runs every 5 minutes.
+# Reads ~/omnidoc/.env for secrets. Only Caddy is reachable from the internet (ports 80 and 443).
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: omnidoc
+      POSTGRES_DB: omnidoc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnidoc -d omnidoc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: ${IMAGE:?Set IMAGE in .env}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+pg8000://omnidoc:${POSTGRES_PASSWORD}@db:5432/omnidoc
+      VAULT_DIR: /data/vault
+      TESSERACT_CMD: tesseract
+    # --proxy-headers: use the real visitor address that Caddy forwards (needed for the per-address limits).
+    # Safe here because nothing but Caddy and the UI can reach this container.
+    command: ["uvicorn", "omnidoc.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    volumes:
+      - vault:/data/vault
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  ui:
+    image: ${IMAGE}
+    restart: unless-stopped
+    command: ["streamlit", "run", "omnidoc/ui/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--browser.gatherUsageStats=false"]
+    environment:
+      OMNIDOC_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data           # keeps the HTTPS certificates between restarts
+      - caddy_config:/config
+    depends_on:
+      - ui
+      - api
+
+volumes:
+  pgdata:
+  vault:
+  caddy_data:
+  caddy_config:

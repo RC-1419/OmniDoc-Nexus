@@ -4,3 +4,6 @@ data/
 __pycache__/
 *.pyc
 .vscode
+end.bat
+.pem
+ssh command.txt

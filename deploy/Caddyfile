@@ -1,0 +1,25 @@
+# Caddy gets and renews the HTTPS certificate for {$DOMAIN} by itself.
+{$DOMAIN} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# The API, for other apps or frontends: https://<your name>/api/...
+	handle_path /api/* {
+		request_body {
+			max_size 20MB
+		}
+		reverse_proxy api:8000
+	}
+
+	# Everything else is the Streamlit app
+	handle {
+		reverse_proxy ui:8501
+	}
+}
