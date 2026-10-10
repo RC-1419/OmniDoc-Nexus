@@ -22,3 +22,4 @@ pypdfium2>=4.30
 python-dotenv
 pg8000
 pydantic[email]
+alembic>=1.13

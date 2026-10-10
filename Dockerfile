@@ -14,6 +14,8 @@ RUN pip install -r requirements.txt
 
 COPY omnidoc ./omnidoc
 COPY scripts ./scripts
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 # Run as a normal user, not root. /data holds the encrypted vault (mounted as a volume).
 RUN useradd --create-home --uid 1000 omnidoc && mkdir -p /data/vault && chown -R omnidoc /data /app
