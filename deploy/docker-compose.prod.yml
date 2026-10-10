@@ -36,7 +36,7 @@ services:
       TESSERACT_CMD: tesseract
     # --proxy-headers: use the real visitor address that Caddy forwards (needed for the per-address limits).
     # Safe here because nothing but Caddy and the UI can reach this container.
-    command: [ "uvicorn", "omnidoc.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*" ]
+    command: [ "sh", "-c", "alembic upgrade head && exec uvicorn omnidoc.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*" ]
     volumes:
       - vault:/data/vault
     depends_on:
