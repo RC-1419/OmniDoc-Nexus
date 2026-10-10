@@ -10,7 +10,7 @@ Everything runs on free tiers, every user's data is isolated from every other us
 - **Check numbers.** Aadhaar numbers are validated with the Verhoeff checksum. A number that fails the check is flagged, and you can type it in by hand.
 - **Family members.** File documents under yourself, your spouse, your parents and so on.
 - **Chat with your documents.** Questions are answered from your own document text only (retrieval-augmented generation). When you ask for a number, the app returns it directly, so the language model never receives it.
-- **Email from the chat.** The app prepares the email and an attachment, shows a card, and sends **only after you click Send**. Senders: Gmail SMTP, Gmail API, and sendlib (disabled until its API details are added), tried in order with fallback.
+- **Email from the chat.** The app prepares the email and an attachment, shows a card, and sends **only after you click Send**. Each confirmation works once: replaying it, or double-clicking, is refused. Senders: Gmail SMTP, Gmail API, and sendlib (disabled until its API details are added), tried in order with fallback.
 - **Choose your AI.** Groq, Mistral, Gemini or OpenRouter, selectable in the app, with fallback.
 - **Safe by default.** Per-user rate limits, upload limits, lock-out after repeated failed logins, and nothing sensitive in logs.
 
@@ -21,9 +21,11 @@ Everything runs on free tiers, every user's data is isolated from every other us
 | Login | Passwords hashed with bcrypt; sessions use signed tokens (JWT). The user is taken from the token only, never from the request body. |
 | Isolation | Every table carries a `user_id`; every query filters by it; asking for someone else's item returns "not found". The vector search is filtered by `user_id` as well. |
 | Encryption | Files, extracted text and detected numbers are encrypted with a key derived separately for each user (HKDF from one master `VAULT_KEY`, Fernet). |
+| Email | Sending needs a signed, 10-minute, single-use confirmation tied to your account, the document and the address. There is a daily email limit per user. |
 | Vector store | Pinecone holds only vectors, ids and small filter fields. Document text stays encrypted in Postgres. |
 | Network | In production only Caddy is reachable (ports 80 and 443). The database, API and UI are internal. HTTPS is automatic. |
 | API surface | The interactive API docs are off in production. |
+| Backups | Nightly, on the server and in a private S3 bucket the server can only add to, never read or delete. |
 
 ## Architecture
 
@@ -46,7 +48,8 @@ omnidoc/
   providers/   swappable back ends: llm, embeddings, vectorstore, email, storage
   services/    business logic: documents, people, chat, retrieval, email
   ui/          Streamlit chat app and its API client
-scripts/       init_db, try_api (full test run), reindex, gmail_authorize, ...
+migrations/    database change scripts (Alembic); alembic.ini is its settings file
+scripts/       try_api (full test run), try_single_use, migrations, reindex, gmail_authorize, ...
 deploy/        production compose file, Caddyfile, update and backup scripts
 .github/       CI: tests, then build and publish the Docker image
 ```
@@ -72,7 +75,7 @@ copy .env.example .env            # then fill it in (see "Settings" below)
 docker compose up -d db
 
 # 4. Create the tables, then start the API and the app (two terminals)
-python -m scripts.init_db
+alembic upgrade head              # an existing local database that already has the tables: alembic stamp head
 uvicorn omnidoc.api.main:app --reload
 streamlit run omnidoc/ui/app.py
 ```
@@ -123,6 +126,13 @@ python -m scripts.try_api
 
 Every line should end in `OK`. The same script runs in CI on every push.
 
+Two smaller checks:
+
+```bash
+python -m scripts.try_single_use      # the single-use rule for email confirmations
+python -m scripts.migrations check    # the change scripts in migrations/ match the models
+```
+
 ## Deployment
 
 Pushing to `main` runs the tests, builds one Docker image (used for both the API and the app), and publishes it to GitHub Container Registry. The server pulls the new image by itself every 5 minutes, so no deploy keys are needed.
@@ -131,17 +141,17 @@ On the server (`~/omnidoc`):
 
 | File | Purpose |
 |---|---|
-| `docker-compose.yml` | Database, API, app and Caddy (from `deploy/docker-compose.prod.yml`) |
+| `docker-compose.yml` | Database, API, app and Caddy (from `deploy/docker-compose.prod.yml`). The API runs `alembic upgrade head` before it starts. |
 | `Caddyfile` | HTTPS, security headers, and routing `/api/*` to the API |
 | `.env` | Production secrets (server only, `chmod 600`) |
 | `update.sh` | Pulls the new image and restarts (run by cron every 5 minutes) |
-| `backup.sh` | Nightly database dump and vault archive, 7 days kept |
+| `backup.sh` | Nightly database dump and vault archive: 7 days kept on the server, and copied to a private S3 bucket (30 days, expired by a lifecycle rule) |
 
 See `deploy/env.production.example` for the production settings. Use new secrets in production, not your development ones.
 
 ### Backups and restore
 
-`backup.sh` writes `~/backups/db-<time>.sql.gz` and `vault-<time>.tar.gz`. The `.env` file is deliberately not included: keep a copy of it in a password manager, because without `VAULT_KEY` the vault cannot be decrypted.
+`backup.sh` writes `~/backups/db-<time>.sql.gz` and `vault-<time>.tar.gz`, then uploads both to the S3 bucket named at the top of the script. The server's IAM role may only add files to that bucket (`s3:PutObject` and `s3:ListBucket`), so a break-in on the server cannot read or erase old backups. Restore from your own computer, signed in to AWS. The `.env` file is deliberately not included: keep a copy of it in a password manager, because without `VAULT_KEY` the vault cannot be decrypted.
 
 To test a restore without touching live data:
 
@@ -151,6 +161,22 @@ docker compose exec -T db psql -U omnidoc -d postgres -c "CREATE DATABASE restor
 gunzip -c ~/backups/db-<time>.sql.gz | docker compose exec -T db psql -U omnidoc -d restore_test -q
 docker compose exec -T db psql -U omnidoc -d postgres -c "DROP DATABASE restore_test;"
 ```
+
+### Database changes (migrations)
+
+Table changes are written as small numbered scripts in `migrations/versions/` (Alembic), tested locally, and applied automatically each time the API starts. Never change a model without adding a migration.
+
+```bash
+# 1. Edit the model in omnidoc/db/models.py
+# 2. Write the change script (uses a throw-away scratch database), then read it:
+python -m scripts.migrations new "describe the change"
+# 3. Check the scripts match the models, then run the tests:
+python -m scripts.migrations check
+python -m scripts.try_api
+# 4. Commit and push. The server applies it on the next update.
+```
+
+For a risky change, run `~/omnidoc/backup.sh` on the server first. The first migration, `baseline`, describes the original tables; a database that already had them was marked as up to date with `alembic stamp head`.
 
 ### Logs
 
@@ -178,6 +204,6 @@ Email works through SMTP by default. To use the Gmail API instead, create an OAu
 
 ## Status
 
-Working: sign-up and login, uploads, family members, chat, email with confirmation, versioned API, automatic deployment, backups, log retention, re-indexing.
-Not enabled: the sendlib email sender (waiting for its API details).
-Ideas for later: single-use email confirmation tokens, database migrations (Alembic), automatic off-server backup copies.
+Working: sign-up and login, uploads, family members, chat, email with single-use confirmation, versioned API, automatic deployment, nightly backups copied off the server, log retention, re-indexing, database migrations.
+Not enabled: the sendlib email sender (waiting for its API details). The Gmail API is optional and needs a published Google consent screen; email works through SMTP.
+Ideas for later: encrypting the database dump before it is uploaded, running `scripts.migrations check` in CI.
