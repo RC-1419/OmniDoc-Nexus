@@ -11,6 +11,7 @@ KEEP_DAYS=7
 BACKUP_DIR="$HOME/backups"
 STAMP=$(date +%Y%m%d-%H%M%S)
 VAULT_VOLUME="omnidoc_vault"        # <folder name>_vault, created by docker compose
+OWNER="$(id -u):$(id -g)"
 
 umask 077
 mkdir -p "$BACKUP_DIR"
@@ -21,8 +22,11 @@ docker compose exec -T db pg_dump -U omnidoc -d omnidoc | gzip > "$BACKUP_DIR/db
 mv "$BACKUP_DIR/db-$STAMP.sql.gz.tmp" "$BACKUP_DIR/db-$STAMP.sql.gz"
 
 # 2. Vault files (already encrypted by the app). Uses an image that is already on the server.
-docker run --rm -v "$VAULT_VOLUME":/data:ro -v "$BACKUP_DIR":/backup postgres:16-alpine \
-    tar czf "/backup/vault-$STAMP.tar.gz.tmp" -C /data .
+#    The archive is made inside a container (as root), so hand it to this user and make it private.
+docker run --rm -e OWNER="$OWNER" -v "$VAULT_VOLUME":/data:ro -v "$BACKUP_DIR":/backup postgres:16-alpine \
+    sh -c "tar czf /backup/vault-$STAMP.tar.gz.tmp -C /data . \
+           && chown \"\$OWNER\" /backup/vault-$STAMP.tar.gz.tmp \
+           && chmod 600 /backup/vault-$STAMP.tar.gz.tmp"
 mv "$BACKUP_DIR/vault-$STAMP.tar.gz.tmp" "$BACKUP_DIR/vault-$STAMP.tar.gz"
 
 # 3. Delete backups older than KEEP_DAYS
