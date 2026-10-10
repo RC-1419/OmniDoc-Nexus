@@ -7,3 +7,4 @@ __pycache__/
 end.bat
 .pem
 ssh command.txt
+docker-compose.override.yml
