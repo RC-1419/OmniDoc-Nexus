@@ -3,6 +3,9 @@ It knows nothing about the database or the AI keys: everything goes through the 
 import httpx
 
 
+API_PREFIX = "/v1"  # the API version this client speaks
+
+
 class ApiError(Exception):
     def __init__(self, status: int, detail: str, retry_after: int | None = None):
         super().__init__(detail)
@@ -18,27 +21,36 @@ def _detail(response: httpx.Response) -> str:
         detail = response.json().get("detail")
     except Exception:
         detail = None
-    if isinstance(detail, list):  # validation errors: [{"loc": [...], "msg": "..."}]
+    # validation errors: [{"loc": [...], "msg": "..."}]
+    if isinstance(detail, list):
         detail = "; ".join(str(d.get("msg", "invalid input")) for d in detail)
     return str(detail) if detail else f"Server error ({response.status_code})"
 
 
 class ApiClient:
-    def __init__(self, base_url: str, token: str | None = None):
+    def __init__(self, base_url: str, token: str | None = None, client_ip: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.token = token
+        # the visitor's real address, passed on so the API's per-address limits work
+        self.client_ip = client_ip
 
     def _request(self, method: str, path: str, *, timeout: float = 30, **kwargs):
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        if self.client_ip:
+            headers["X-Forwarded-For"] = self.client_ip
         try:
-            r = httpx.request(method, self.base_url + path, headers=headers, timeout=timeout, **kwargs)
+            r = httpx.request(method, self.base_url + API_PREFIX +
+                              path, headers=headers, timeout=timeout, **kwargs)
         except httpx.HTTPError:
-            raise ApiError(0, f"Can't reach the server at {self.base_url}. Is it running?")
+            raise ApiError(
+                0, f"Can't reach the server at {self.base_url}. Is it running?")
         if r.status_code < 400:
             return r
         retry = r.headers.get("retry-after")
-        error = Unauthorized if (r.status_code == 401 and self.token) else ApiError
-        raise error(r.status_code, _detail(r), int(retry) if retry and retry.isdigit() else None)
+        error = Unauthorized if (
+            r.status_code == 401 and self.token) else ApiError
+        raise error(r.status_code, _detail(r), int(retry)
+                    if retry and retry.isdigit() else None)
 
     # --- public
     def providers(self) -> dict:
@@ -51,7 +63,8 @@ class ApiClient:
         return self._request("POST", "/auth/signup", json=body).json()
 
     def login(self, username: str, password: str) -> str:
-        r = self._request("POST", "/auth/login", data={"username": username, "password": password})
+        r = self._request("POST", "/auth/login",
+                          data={"username": username, "password": password})
         return r.json()["access_token"]
 
     # --- private
@@ -81,7 +94,8 @@ class ApiClient:
         return self._request("GET", f"/documents/{document_id}/file", timeout=60).content
 
     def set_field(self, document_id: int, name: str, value: str) -> bool:
-        self._request("PUT", f"/documents/{document_id}/fields/{name}", json={"value": value})
+        self._request(
+            "PUT", f"/documents/{document_id}/fields/{name}", json={"value": value})
         return True
 
     def delete_document(self, document_id: int) -> bool:

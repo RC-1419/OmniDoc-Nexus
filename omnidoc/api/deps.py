@@ -17,7 +17,7 @@ from omnidoc.providers.storage.factory import get_file_store
 from omnidoc.providers.vectorstore.base import VectorStore
 from omnidoc.providers.vectorstore.factory import get_vector_store
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
 DB = Annotated[Session, Depends(get_db)]
 
 

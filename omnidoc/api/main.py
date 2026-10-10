@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -11,6 +11,9 @@ from omnidoc.core.config import get_settings
 from omnidoc.db.session import init_db
 
 settings = get_settings()
+
+# bump only for breaking changes; the old version stays available next to the new one
+API_VERSION = "1"
 
 
 @asynccontextmanager
@@ -25,7 +28,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=settings.app_name, lifespan=lifespan, redoc_url=None,
+    title=settings.app_name, version=f"{API_VERSION}.0.0", lifespan=lifespan, redoc_url=None,
     docs_url="/docs" if settings.enable_docs else None,
     openapi_url="/openapi.json" if settings.enable_docs else None)
 
@@ -43,6 +46,7 @@ async def basic_protections(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("Cache-Control", "no-store")
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-API-Version"] = API_VERSION
     return response
 
 
@@ -52,10 +56,13 @@ if origins:  # added last = outermost, so even a "too large" answer carries the 
                        allow_headers=["Authorization", "Content-Type"])
 
 register_error_handlers(app)
+v1 = APIRouter(prefix=f"/v{API_VERSION}")
 for module in (meta, auth, people, documents, chat):
-    app.include_router(module.router)
+    v1.include_router(module.router)
+app.include_router(v1)
 
 
+# not versioned: used by Docker and monitoring
 @app.get("/health", tags=["meta"])
 def health():
     return {"status": "ok"}

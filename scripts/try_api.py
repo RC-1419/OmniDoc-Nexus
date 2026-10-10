@@ -134,9 +134,15 @@ def seen():
 
 
 try:
-    with TestClient(app) as client:
-        r = client.get("/health")
+    # every relative path below is under /v1
+    with TestClient(app, base_url="http://testserver/v1") as client:
+        # the one unversioned endpoint
+        r = client.get("http://testserver/health")
         assert r.status_code == 200 and r.json() == {"status": "ok"}
+        assert r.headers["x-api-version"] == "1"
+        for old in ("/providers", "/documents", "/auth/login", "/chat"):  # nothing answers outside /v1
+            assert client.get("http://testserver" +
+                              old).status_code in (404, 405), old
         r = client.get("/providers")
         assert r.status_code == 200 and set(
             r.json()) == {"llm", "default_llm", "email"}, r.text

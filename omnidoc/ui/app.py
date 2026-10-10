@@ -5,7 +5,8 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # so `omnidoc` imports work when launched by Streamlit
+# so `omnidoc` imports work when launched by Streamlit
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import streamlit as st  # noqa: E402
 
@@ -15,6 +16,16 @@ API_URL = os.environ.get("OMNIDOC_API_URL", "http://127.0.0.1:8000")
 FIELD_NAMES = ["aadhaar_number", "pan_number", "passport_number"]
 
 st.set_page_config(page_title="Omnidoc Nexus", page_icon="🔐", layout="wide")
+
+
+def visitor_ip() -> str | None:
+    """The visitor's address as seen by the reverse proxy (Caddy). Caddy replaces any X-Forwarded-For a visitor
+    sends, so this value can be trusted. When running without a proxy (local use) there is no header."""
+    try:
+        header = st.context.headers.get("X-Forwarded-For", "")
+    except Exception:
+        return None
+    return header.split(",")[-1].strip() or None
 
 
 def logout(notice: str = "") -> None:
@@ -39,7 +50,8 @@ def attempt(fn, *args, **kwargs):
 def show_file(file: dict, key: str) -> None:
     if file["mime"].startswith("image/"):
         st.image(file["data"], caption=file["name"])
-    st.download_button(f"⬇ Download {file['name']}", file["data"], file_name=file["name"], mime=file["mime"], key=key)
+    st.download_button(f"⬇ Download {file['name']}", file["data"],
+                       file_name=file["name"], mime=file["mime"], key=key)
 
 
 # ---------------------------------------------------------------- sign in / sign up
@@ -60,9 +72,12 @@ def login_page(api: ApiClient) -> None:
                     st.rerun()
     with sign_up:
         with st.form("signup"):
-            username = st.text_input("Choose a username", help="3-32 letters, numbers, . _ -")
-            email = st.text_input("Email (optional)", help="Lets you say 'email it to me'.")
-            password = st.text_input("Choose a password", type="password", help="At least 8 characters")
+            username = st.text_input(
+                "Choose a username", help="3-32 letters, numbers, . _ -")
+            email = st.text_input("Email (optional)",
+                                  help="Lets you say 'email it to me'.")
+            password = st.text_input(
+                "Choose a password", type="password", help="At least 8 characters")
             again = st.text_input("Repeat password", type="password")
             if st.form_submit_button("Create account", type="primary"):
                 if password != again:
@@ -82,7 +97,8 @@ def documents_page(api: ApiClient) -> None:
 
     with st.expander("➕ Upload a document", expanded=not docs):
         with st.form("upload", clear_on_submit=True):
-            file = st.file_uploader("PDF or photo", type=["pdf", "png", "jpg", "jpeg"])
+            file = st.file_uploader("PDF or photo", type=[
+                                    "pdf", "png", "jpg", "jpeg"])
             person = st.selectbox("Whose document is it?", people, format_func=lambda p: f"{p['name']} ({p['relation']})") \
                 if people else None
             doc_type = st.text_input("Document type (optional)", placeholder="Leave empty to detect it automatically",
@@ -98,7 +114,8 @@ def documents_page(api: ApiClient) -> None:
                         st.success(f"Saved as: {result['doc_type']}"
                                    + (f" (replaced {result['replaced']} older one)" if result["replaced"] else ""))
                         if result["fields_found"]:
-                            st.write("Numbers found: " + ", ".join(result["fields_found"]))
+                            st.write("Numbers found: " +
+                                     ", ".join(result["fields_found"]))
                         for w in result["warnings"]:
                             st.warning(w)
                         docs = attempt(api.documents) or docs
@@ -108,7 +125,8 @@ def documents_page(api: ApiClient) -> None:
             st.write(f"• {p['name']} ({p['relation']})")
         with st.form("add_person", clear_on_submit=True):
             name = st.text_input("Name")
-            relation = st.text_input("Relation", value="family", help="mother, father, spouse, child…")
+            relation = st.text_input(
+                "Relation", value="family", help="mother, father, spouse, child…")
             if st.form_submit_button("Add person") and name.strip():
                 if attempt(api.add_person, name.strip(), relation.strip() or "family"):
                     st.rerun()
@@ -119,15 +137,18 @@ def documents_page(api: ApiClient) -> None:
     for d in docs:
         label = f"{d['doc_type'].upper()} · {d['person_name']} · {d['filename']}"
         with st.expander(label):
-            st.caption(f"Added {d['created_at'][:10]}. Numbers held: {', '.join(d['fields']) or 'none'}")
+            st.caption(
+                f"Added {d['created_at'][:10]}. Numbers held: {', '.join(d['fields']) or 'none'}")
             open_key = f"open_{d['id']}"
             if st.toggle("Show / download", key=open_key):
                 data = attempt(api.file, d["id"])
                 if data:
-                    show_file({"name": d["filename"], "mime": d["mime"], "data": data}, f"dl_{d['id']}")
+                    show_file(
+                        {"name": d["filename"], "mime": d["mime"], "data": data}, f"dl_{d['id']}")
             with st.form(f"field_{d['id']}"):
                 st.write("Type in a number the scanner missed")
-                name = st.selectbox("Which number", FIELD_NAMES, key=f"fname_{d['id']}")
+                name = st.selectbox(
+                    "Which number", FIELD_NAMES, key=f"fname_{d['id']}")
                 value = st.text_input("Value", key=f"fval_{d['id']}")
                 if st.form_submit_button("Save number") and value.strip():
                     if attempt(api.set_field, d["id"], name, value.strip()):
@@ -152,11 +173,13 @@ def chat_page(api: ApiClient, provider: str | None) -> None:
     st.header("Ask about your documents")
     messages = st.session_state.setdefault("messages", [])
     if not messages:
-        st.info("Try: “What is my PAN number?”, “Show my Aadhaar card”, or “Email my passport to me”.")
+        st.info(
+            "Try: “What is my PAN number?”, “Show my Aadhaar card”, or “Email my passport to me”.")
 
     prompt = st.chat_input("Ask something…")
     if prompt:
-        history = [{"role": m["role"], "content": m["content"][:4000]} for m in messages][-20:]
+        history = [{"role": m["role"], "content": m["content"][:4000]}
+                   for m in messages][-20:]
         messages.append({"role": "user", "content": prompt})
         st.session_state.pop("pending_email", None)
         with st.spinner("Thinking…"):
@@ -169,7 +192,8 @@ def chat_page(api: ApiClient, provider: str | None) -> None:
                 shown = reply["show_document"]
                 data = attempt(api.file, shown["document_id"])
                 if data:
-                    entry["file"] = {"name": shown["filename"], "mime": shown["mime"], "data": data}
+                    entry["file"] = {"name": shown["filename"],
+                                     "mime": shown["mime"], "data": data}
             messages.append(entry)
             if reply["email_action"]:
                 st.session_state["pending_email"] = reply["email_action"]
@@ -183,23 +207,26 @@ def chat_page(api: ApiClient, provider: str | None) -> None:
     action = st.session_state.get("pending_email")
     if action:
         with st.container(border=True):
-            st.write(f"**Send this email?**  \n{action['description']}  \nTo: `{action['to']}`")
+            st.write(
+                f"**Send this email?**  \n{action['description']}  \nTo: `{action['to']}`")
             send, cancel = st.columns(2)
             if send.button("✅ Send", type="primary"):
                 result = attempt(api.confirm_email, action["token"], None)
                 if result:
-                    messages.append({"role": "assistant", "content": f"Email sent to {action['to']}."})
+                    messages.append(
+                        {"role": "assistant", "content": f"Email sent to {action['to']}."})
                     st.session_state.pop("pending_email")
                     st.rerun()
             if cancel.button("Cancel"):
-                messages.append({"role": "assistant", "content": "Okay, I didn't send anything."})
+                messages.append(
+                    {"role": "assistant", "content": "Okay, I didn't send anything."})
                 st.session_state.pop("pending_email")
                 st.rerun()
 
 
 # ---------------------------------------------------------------- main
 def main() -> None:
-    api = ApiClient(API_URL, st.session_state.get("token"))
+    api = ApiClient(API_URL, st.session_state.get("token"), visitor_ip())
     if not api.token:
         login_page(api)
         return
@@ -207,16 +234,20 @@ def main() -> None:
     if user is None:
         return
     if "providers" not in st.session_state:
-        st.session_state["providers"] = attempt(api.providers) or {"llm": [], "default_llm": None}
+        st.session_state["providers"] = attempt(api.providers) or {
+            "llm": [], "default_llm": None}
     providers = st.session_state["providers"]
 
     with st.sidebar:
-        st.markdown(f"### 🔐 Omnidoc Nexus\nSigned in as **{user['username']}**")
-        view = st.radio("Go to", ["💬 Chat", "📁 Documents"], label_visibility="collapsed")
+        st.markdown(
+            f"### 🔐 Omnidoc Nexus\nSigned in as **{user['username']}**")
+        view = st.radio("Go to", ["💬 Chat", "📁 Documents"],
+                        label_visibility="collapsed")
         names = [p["name"] for p in providers["llm"]]
         provider = None
         if names:
-            default = names.index(providers["default_llm"]) if providers["default_llm"] in names else 0
+            default = names.index(
+                providers["default_llm"]) if providers["default_llm"] in names else 0
             provider = st.selectbox("AI model", names, index=default,
                                     format_func=lambda n: next(p["label"] for p in providers["llm"] if p["name"] == n))
         if st.button("Clear chat"):
@@ -226,7 +257,8 @@ def main() -> None:
         if st.button("Sign out"):
             logout()
             st.rerun()
-        st.caption("Chat messages are kept only in this browser tab and disappear when you sign out or close it.")
+        st.caption(
+            "Chat messages are kept only in this browser tab and disappear when you sign out or close it.")
 
     if view.endswith("Chat"):
         chat_page(api, provider)
