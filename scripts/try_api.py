@@ -301,6 +301,10 @@ try:
         ) == {"sent": True, "provider": "fake"}, r.text
         assert len(
             sent) == 1 and sent[0].to == "someone@example.com" and sent[0].attachment.data == pdf
+        replay = client.post("/chat/confirm-email",
+                             headers=auth(alice), json={"token": act["token"]})
+        assert replay.status_code == 400 and "already used" in replay.json()[
+            "detail"], replay.text  # single use
         assert client.post("/chat/confirm-email", headers=auth(bob),
                            json={"token": act["token"]}).status_code == 400
         assert client.post("/chat/confirm-email", headers=auth(alice),

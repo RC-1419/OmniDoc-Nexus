@@ -7,6 +7,7 @@ from omnidoc.services import documents as docs
 from omnidoc.services.chat_tools import TOOLS, EmailAction, ToolContext, run_tool
 from omnidoc.services.email_service import send_email
 from omnidoc.services.errors import DocumentError
+from omnidoc.services import single_use
 from omnidoc.services.people import list_people
 from omnidoc.services.redact import redact_sensitive
 
@@ -100,13 +101,22 @@ def chat(db, *, user, message: str, history: list | None, llm: LLMProvider, embe
 
 def confirm_email(db, *, user, token: str, files, preferred: str | None = None):
     """Called only when the user presses Confirm. The token proves the user was shown this exact
-    document and address; the model cannot create one."""
+    document and address; the model cannot create one. Each token works once: it is claimed before
+    sending, and given back if sending fails, so a failed attempt can be retried with the same card."""
     data = decode_action_token(token, "email_confirm", user.id)
     if not data:
         raise DocumentError(
             "This confirmation has expired or isn't valid. Ask again.")
-    doc, content = docs.read_file(db, user.id, int(data["document_id"]), files)
-    label = doc.doc_type.replace("_", " ")
-    return send_email(db, user_id=user.id, to=data["to"], subject=f"Your {label} document",
-                      body="The document you asked for is attached.",
-                      attachment=Attachment(doc.filename, doc.mime, content), preferred=preferred)
+    if not single_use.claim(db, user.id, token):
+        raise DocumentError(
+            "This confirmation was already used. If you still need the email, ask again.")
+    try:
+        doc, content = docs.read_file(
+            db, user.id, int(data["document_id"]), files)
+        label = doc.doc_type.replace("_", " ")
+        return send_email(db, user_id=user.id, to=data["to"], subject=f"Your {label} document",
+                          body="The document you asked for is attached.",
+                          attachment=Attachment(doc.filename, doc.mime, content), preferred=preferred)
+    except Exception:
+        single_use.release(db, user.id, token)
+        raise
