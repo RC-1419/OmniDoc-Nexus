@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from omnidoc.api.errors import register_error_handlers
 from omnidoc.api.routes import auth, chat, documents, meta, people
@@ -56,6 +57,11 @@ if origins:  # added last = outermost, so even a "too large" answer carries the 
                        allow_headers=["Authorization", "Content-Type"])
 
 register_error_handlers(app)
+
+# Metrics for Prometheus at /metrics: counts, timings and errors per route TEMPLATE (never per user or id).
+# Caddy does not forward /api/metrics, so only Prometheus, inside the Docker network, can read it.
+Instrumentator(excluded_handlers=["/health", "/metrics"], should_instrument_requests_inprogress=True) \
+    .instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 v1 = APIRouter(prefix=f"/v{API_VERSION}")
 for module in (meta, auth, people, documents, chat):
     v1.include_router(module.router)

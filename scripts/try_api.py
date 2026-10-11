@@ -382,6 +382,15 @@ try:
         assert r.status_code == 429 and int(
             r.headers["retry-after"]) > 0, r.text
         print("16. repeated failed logins lock that address out for a while OK")
+
+        import re
+        r = client.get("http://testserver/metrics")
+        assert r.status_code == 200 and "http_requests_total" in r.text, r.text[:200]
+        assert "/v1/auth/login" in r.text and 'handler="/health"' not in r.text
+        # route templates only, never real ids
+        assert not re.search(r"/documents/\d", r.text)
+        assert "Bearer" not in r.text and PAN not in r.text and name not in r.text
+        print("17. metrics page works and carries no tokens, ids or personal data OK")
 finally:
     app.dependency_overrides.clear()
     with SessionLocal() as db:

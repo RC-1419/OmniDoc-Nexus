@@ -1,0 +1,20 @@
+# SonarQube Community for YOUR LAPTOP only (needs about 2 GB of RAM). Never deploy this to the small AWS server.
+#   docker compose -f docker-compose.sonar.yml up -d      then open http://localhost:9000  (first login admin / admin, you must change it)
+#   docker compose -f docker-compose.sonar.yml down       stop it (add -v to also delete its data)
+name: omnidoc-sonar
+services:
+  sonarqube:
+    image: sonarqube:community
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"          # reachable from this computer only
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"   # lets it start without raising the kernel's vm.max_map_count
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_extensions:/opt/sonarqube/extensions
+      - sonar_logs:/opt/sonarqube/logs
+volumes:
+  sonar_data:
+  sonar_extensions:
+  sonar_logs:

@@ -10,6 +10,12 @@
 		-Server
 	}
 
+	# The metrics page is for Prometheus only, which reads it inside the Docker network.
+	# This block must stay ABOVE the /api/* block so the public internet never reaches it.
+	handle /api/metrics* {
+		respond 404
+	}
+
 	# The API, for other apps or frontends: https://<your name>/api/...
 	handle_path /api/* {
 		request_body {

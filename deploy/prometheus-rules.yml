@@ -1,0 +1,35 @@
+# Alert rules. With no Alertmanager they only show up on the Prometheus "Alerts" page (a red row means firing).
+# Check it from time to time, or add Alertmanager later to get an email.
+groups:
+  - name: omnidoc
+    rules:
+      - alert: ApiDown
+        expr: up{job="omnidoc-api"} == 0
+        for: 2m
+        annotations:
+          summary: "The API has not answered Prometheus for 2 minutes"
+
+      - alert: ServerErrors
+        expr: sum(rate(http_requests_total{job="omnidoc-api", status="5xx"}[5m])) > 0.05
+        for: 5m
+        annotations:
+          summary: "More than 3 server errors (5xx) per minute for 5 minutes"
+
+      - alert: SlowRequests
+        # chat calls an outside AI service and can be slow on purpose, so the bar is high
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_highr_seconds_bucket{job="omnidoc-api"}[5m]))) > 5
+        for: 10m
+        annotations:
+          summary: "95% of requests take longer than 5 seconds"
+
+      - alert: ManyFailedLogins
+        expr: sum(increase(http_requests_total{job="omnidoc-api", handler="/v1/auth/login", status="4xx"}[10m])) > 50
+        for: 1m
+        annotations:
+          summary: "Over 50 failed or blocked logins in 10 minutes (someone may be guessing passwords)"
+
+      - alert: ApiMemoryHigh
+        expr: process_resident_memory_bytes{job="omnidoc-api"} > 600 * 1024 * 1024
+        for: 10m
+        annotations:
+          summary: "The API process uses more than 600 MB of memory"

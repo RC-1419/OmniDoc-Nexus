@@ -8,3 +8,16 @@ end.bat
 .pem
 ssh command.txt
 docker-compose.override.yml
+
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+jmeter.log
+.scannerwork/
+
+# Load test files made on your computer
+loadtest/users.csv
+loadtest/results.jtl
+loadtest/report/
+jmeter.log

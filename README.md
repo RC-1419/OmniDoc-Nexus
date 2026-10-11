@@ -49,8 +49,10 @@ omnidoc/
   services/    business logic: documents, people, chat, retrieval, email
   ui/          Streamlit chat app and its API client
 migrations/    database change scripts (Alembic); alembic.ini is its settings file
+tests/         pytest: unit/ (fast, no database) and integration/ (real API and database)
+loadtest/      JMeter plan (omnidoc.jmx), setup_users.py and its README
 scripts/       try_api (full test run), try_single_use, migrations, reindex, gmail_authorize, ...
-deploy/        production compose file, Caddyfile, update and backup scripts
+deploy/        production compose file, Caddyfile, Prometheus settings, update and backup scripts
 .github/       CI: tests, then build and publish the Docker image
 ```
 
@@ -118,24 +120,65 @@ openssl rand -base64 48                                                         
 
 ## Tests
 
-`scripts/try_api.py` runs the whole API against a real database with fake AI, email and vector services. It checks login, uploads, isolation between users, chat, email confirmation, rate limits and deletion.
+```bash
+pip install -r requirements-dev.txt
+python -m pytest                          # everything
+python -m pytest -m unit                  # fast ones: no database, no network
+python -m pytest -m integration           # real API + real database (skipped if the database is not reachable)
+python -m pytest --cov=omnidoc            # with coverage
+```
+
+- **Unit tests** (`tests/unit/`): schemas, rate limiter, single-use tokens, error mapping, request dependencies, the test stand-ins, and the load-test files.
+- **Integration tests** (`tests/integration/`): the real FastAPI app and database, covering sign-up and login, uploads, isolation between users, chat, email confirmation and the metrics page. Only the AI, the vector store and outgoing email are stand-ins. They create users named `test_*` and delete them at the end.
+
+`scripts/try_api.py` is the older single-script walkthrough of the same API. It still runs in CI after pytest.
 
 ```bash
 python -m scripts.try_api
-```
-
-Every line should end in `OK`. The same script runs in CI on every push.
-
-Two smaller checks:
-
-```bash
 python -m scripts.try_single_use      # the single-use rule for email confirmations
 python -m scripts.migrations check    # the change scripts in migrations/ match the models
 ```
 
+## Code quality (SonarQube)
+
+`sonar-project.properties` is the shared configuration. Two ways to use it:
+
+**On your computer** (needs about 2 GB of RAM; never run it on the AWS server):
+
+```bash
+docker compose -f docker-compose.sonar.yml up -d          # then open http://localhost:9000 (admin / admin, change it)
+python -m pytest --cov=omnidoc --cov-report=xml            # writes coverage.xml
+# In SonarQube: create a project "omnidoc-nexus" (manual), make a token, then:
+docker run --rm -e SONAR_HOST_URL=http://host.docker.internal:9000 -e SONAR_TOKEN=<token> -v "%cd%:/usr/src" sonarsource/sonar-scanner-cli
+```
+
+**In CI** the last step of the test job scans automatically when a `SONAR_TOKEN` secret exists (SonarQube Cloud by default; add a `SONAR_HOST_URL` secret to use your own server). Without the secret the step is skipped.
+
+## Monitoring (Prometheus)
+
+The API publishes counts and timings per route at `/metrics` (route patterns only, never user names, ids or tokens). Caddy answers 404 for `/api/metrics`, so only Prometheus, inside the Docker network, can read it. Prometheus is bound to `127.0.0.1:9090` on the server; open it through a tunnel:
+
+```bash
+ssh -i C:\Users\Rohit\.ssh\omnidoc.pem -L 9090:127.0.0.1:9090 ubuntu@32.236.181.134     # then browse http://localhost:9090
+```
+
+Useful queries:
+
+```
+sum(rate(http_requests_total[5m]))                                                         # requests per second
+histogram_quantile(0.95, sum by (le) (rate(http_request_duration_highr_seconds_bucket[5m])))  # 95th percentile time
+sum(rate(http_requests_total{status="5xx"}[5m]))                                           # server errors per second
+```
+
+Alert rules (`deploy/prometheus-rules.yml`) show on the Alerts page. There is no Alertmanager, so nothing is emailed.
+
+## Load testing (JMeter)
+
+`loadtest/omnidoc.jmx` logs in a few test users and repeats cheap read calls. It never calls chat, so no AI quota is used. Steps are in `loadtest/README.md`. Try it on your own computer first.
+
 ## Deployment
 
-Pushing to `main` runs the tests, builds one Docker image (used for both the API and the app), and publishes it to GitHub Container Registry. The server pulls the new image by itself every 5 minutes, so no deploy keys are needed.
+Pushing to `main` runs the tests (and the SonarQube scan if configured), builds one Docker image (used for both the API and the app), and publishes it to GitHub Container Registry. The server pulls the new image by itself every 5 minutes, so no deploy keys are needed.
 
 On the server (`~/omnidoc`):
 
@@ -144,6 +187,7 @@ On the server (`~/omnidoc`):
 | `docker-compose.yml` | Database, API, app and Caddy (from `deploy/docker-compose.prod.yml`). The API runs `alembic upgrade head` before it starts. |
 | `Caddyfile` | HTTPS, security headers, and routing `/api/*` to the API |
 | `.env` | Production secrets (server only, `chmod 600`) |
+| `prometheus.yml`, `prometheus-rules.yml` | What Prometheus scrapes and which alerts it shows |
 | `update.sh` | Pulls the new image and restarts (run by cron every 5 minutes) |
 | `backup.sh` | Nightly database dump and vault archive: 7 days kept on the server, and copied to a private S3 bucket (30 days, expired by a lifecycle rule) |
 
@@ -204,6 +248,6 @@ Email works through SMTP by default. To use the Gmail API instead, create an OAu
 
 ## Status
 
-Working: sign-up and login, uploads, family members, chat, email with single-use confirmation, versioned API, automatic deployment, nightly backups copied off the server, log retention, re-indexing, database migrations.
+Working: sign-up and login, uploads, family members, chat, email with single-use confirmation, versioned API, automatic deployment, nightly backups copied off the server, log retention, re-indexing, database migrations, Prometheus metrics, JMeter load tests, pytest suite, SonarQube analysis.
 Not enabled: the sendlib email sender (waiting for its API details). The Gmail API is optional and needs a published Google consent screen; email works through SMTP.
-Ideas for later: encrypting the database dump before it is uploaded, running `scripts.migrations check` in CI.
+Ideas for later: encrypting the database dump before it is uploaded, running `scripts.migrations check` in CI, Alertmanager for emailed alerts.
