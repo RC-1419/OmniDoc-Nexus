@@ -53,7 +53,7 @@ def set_document_field(document_id: int, name: str, body: FieldIn, user: Current
     try:
         docs.set_field(db, user.id, document_id, name, body.value)
     except ValueError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -1,10 +1,11 @@
 import hashlib
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert
 
 from omnidoc.db.used_tokens import UsedActionToken
+from omnidoc.core.clock import utcnow
 
 # tokens expire after 10 minutes, so a day is far more than enough
 KEEP = timedelta(days=1)
@@ -17,7 +18,7 @@ def _hash(token: str) -> str:
 def claim(db, user_id: int, token: str) -> bool:
     """True for the first caller only. The database decides: two clicks at the same moment cannot both win."""
     db.execute(delete(UsedActionToken).where(
-        UsedActionToken.used_at < datetime.utcnow() - KEEP))
+        UsedActionToken.used_at < utcnow() - KEEP))
     result = db.execute(insert(UsedActionToken).values(user_id=int(user_id), token_hash=_hash(token))
                         .on_conflict_do_nothing())
     db.commit()

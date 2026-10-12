@@ -4,6 +4,7 @@ from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from omnidoc.db.models import Base
+from omnidoc.core.clock import utcnow
 
 
 class UsedActionToken(Base):
@@ -13,4 +14,4 @@ class UsedActionToken(Base):
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     used_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True)
+        DateTime, default=utcnow, index=True)

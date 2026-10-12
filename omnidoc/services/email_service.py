@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import func, select
 
@@ -7,6 +7,7 @@ from omnidoc.db.models import EmailLog
 from omnidoc.providers.email.base import Attachment, EmailError, OutgoingEmail, clean_address, clean_subject
 from omnidoc.providers.email.factory import (SendResult, get_email_provider, provider_order,
                                              send_with_fallback)
+from omnidoc.core.clock import utcnow
 
 
 class EmailLimitReached(EmailError):
@@ -15,7 +16,7 @@ class EmailLimitReached(EmailError):
 
 
 def sent_last_24h(db, user_id: int) -> int:
-    since = datetime.utcnow() - timedelta(hours=24)
+    since = utcnow() - timedelta(hours=24)
     return db.scalar(select(func.count()).select_from(EmailLog)
                      .where(EmailLog.user_id == user_id, EmailLog.status == "sent",
                             EmailLog.created_at >= since)) or 0

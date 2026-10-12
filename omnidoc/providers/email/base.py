@@ -31,7 +31,7 @@ class OutgoingEmail:
     attachment: Attachment | None = None
 
 
-_ADDRESS = re.compile(r"^[^@\s<>,;\"']+@[^@\s<>,;\"']+\.[^@\s<>,;\"']+$")
+_ADDRESS = re.compile(r"^[^@\s<>,;\"']+@[^@\s<>,;\"'.]+(?:\.[^@\s<>,;\"'.]+)+$")
 
 
 def clean_address(address: str) -> str:

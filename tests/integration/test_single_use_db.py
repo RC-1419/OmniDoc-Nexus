@@ -1,7 +1,7 @@
 """Single-use tokens against the real database, including two clicks at exactly the same moment."""
 import random
 import threading
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import delete, select
@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from omnidoc.db.session import SessionLocal
 from omnidoc.db.used_tokens import UsedActionToken
 from omnidoc.services import single_use
+from omnidoc.core.clock import utcnow
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def test_only_a_hash_is_stored(uid):
 def test_old_rows_are_cleaned_up_on_the_next_claim(uid):
     with SessionLocal() as db:
         db.add(UsedActionToken(user_id=uid, token_hash=single_use._hash(
-            "old"), used_at=datetime.utcnow() - timedelta(days=2)))
+            "old"), used_at=utcnow() - timedelta(days=2)))
         db.commit()
     assert claim(uid, "new")
     with SessionLocal() as db:
