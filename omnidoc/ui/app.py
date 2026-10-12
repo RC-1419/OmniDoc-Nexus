@@ -90,46 +90,96 @@ def login_page(api: ApiClient) -> None:
 
 
 # ---------------------------------------------------------------- documents view
+def _upload_form(api: ApiClient, people: list) -> list | None:
+    """Show the upload form. Returns the refreshed document list after a successful upload, else None."""
+    with st.form("upload", clear_on_submit=True):
+        file = st.file_uploader("PDF or photo", type=[
+                                "pdf", "png", "jpg", "jpeg"])
+        person = st.selectbox("Whose document is it?", people, format_func=lambda p: f"{p['name']} ({p['relation']})") \
+            if people else None
+        doc_type = st.text_input("Document type (optional)", placeholder="Leave empty to detect it automatically",
+                                 help="For example: aadhaar, pan, passport")
+        if not st.form_submit_button("Upload", type="primary"):
+            return None
+        if file is None:
+            st.error("Choose a file first.")
+            return None
+        with st.spinner("Reading the document…"):
+            result = attempt(api.upload, file.name, file.getvalue(), file.type or "application/octet-stream",
+                             person["id"] if person else None, doc_type.strip() or None)
+        if not result:
+            return None
+        st.success(f"Saved as: {result['doc_type']}"
+                   + (f" (replaced {result['replaced']} older one)" if result["replaced"] else ""))
+        if result["fields_found"]:
+            st.write("Numbers found: " + ", ".join(result["fields_found"]))
+        for w in result["warnings"]:
+            st.warning(w)
+        return attempt(api.documents)
+
+
+def _family_section(api: ApiClient, people: list) -> None:
+    for p in people:
+        st.write(f"• {p['name']} ({p['relation']})")
+    with st.form("add_person", clear_on_submit=True):
+        name = st.text_input("Name")
+        relation = st.text_input(
+            "Relation", value="family", help="mother, father, spouse, child…")
+        if st.form_submit_button("Add person") and name.strip():
+            if attempt(api.add_person, name.strip(), relation.strip() or "family"):
+                st.rerun()
+
+
+def _field_form(api: ApiClient, d: dict) -> None:
+    with st.form(f"field_{d['id']}"):
+        st.write("Type in a number the scanner missed")
+        name = st.selectbox(
+            "Which number", FIELD_NAMES, key=f"fname_{d['id']}")
+        value = st.text_input("Value", key=f"fval_{d['id']}")
+        if st.form_submit_button("Save number") and value.strip():
+            if attempt(api.set_field, d["id"], name, value.strip()):
+                st.success("Saved.")
+
+
+def _delete_controls(api: ApiClient, d: dict) -> None:
+    if st.session_state.get("confirm_delete") != d["id"]:
+        if st.button("🗑 Delete", key=f"del_{d['id']}"):
+            st.session_state["confirm_delete"] = d["id"]
+            st.rerun()
+        return
+    st.warning("Delete this document permanently?")
+    yes, no = st.columns(2)
+    if yes.button("Yes, delete", key=f"yes_{d['id']}", type="primary"):
+        if attempt(api.delete_document, d["id"]):
+            st.session_state.pop("confirm_delete")
+            st.rerun()
+    if no.button("Keep it", key=f"no_{d['id']}"):
+        st.session_state.pop("confirm_delete")
+        st.rerun()
+
+
+def _document_card(api: ApiClient, d: dict) -> None:
+    st.caption(
+        f"Added {d['created_at'][:10]}. Numbers held: {', '.join(d['fields']) or 'none'}")
+    if st.toggle("Show / download", key=f"open_{d['id']}"):
+        data = attempt(api.file, d["id"])
+        if data:
+            show_file(
+                {"name": d["filename"], "mime": d["mime"], "data": data}, f"dl_{d['id']}")
+    _field_form(api, d)
+    _delete_controls(api, d)
+
+
 def documents_page(api: ApiClient) -> None:
     st.header("My documents")
     people = attempt(api.people) or []
     docs = attempt(api.documents) or []
 
     with st.expander("➕ Upload a document", expanded=not docs):
-        with st.form("upload", clear_on_submit=True):
-            file = st.file_uploader("PDF or photo", type=[
-                                    "pdf", "png", "jpg", "jpeg"])
-            person = st.selectbox("Whose document is it?", people, format_func=lambda p: f"{p['name']} ({p['relation']})") \
-                if people else None
-            doc_type = st.text_input("Document type (optional)", placeholder="Leave empty to detect it automatically",
-                                     help="For example: aadhaar, pan, passport")
-            if st.form_submit_button("Upload", type="primary"):
-                if file is None:
-                    st.error("Choose a file first.")
-                else:
-                    with st.spinner("Reading the document…"):
-                        result = attempt(api.upload, file.name, file.getvalue(), file.type or "application/octet-stream",
-                                         person["id"] if person else None, doc_type.strip() or None)
-                    if result:
-                        st.success(f"Saved as: {result['doc_type']}"
-                                   + (f" (replaced {result['replaced']} older one)" if result["replaced"] else ""))
-                        if result["fields_found"]:
-                            st.write("Numbers found: " +
-                                     ", ".join(result["fields_found"]))
-                        for w in result["warnings"]:
-                            st.warning(w)
-                        docs = attempt(api.documents) or docs
+        docs = _upload_form(api, people) or docs
 
     with st.expander("👪 Family members"):
-        for p in people:
-            st.write(f"• {p['name']} ({p['relation']})")
-        with st.form("add_person", clear_on_submit=True):
-            name = st.text_input("Name")
-            relation = st.text_input(
-                "Relation", value="family", help="mother, father, spouse, child…")
-            if st.form_submit_button("Add person") and name.strip():
-                if attempt(api.add_person, name.strip(), relation.strip() or "family"):
-                    st.rerun()
+        _family_section(api, people)
 
     if not docs:
         st.info("Nothing here yet. Upload your first document above.")
@@ -137,38 +187,50 @@ def documents_page(api: ApiClient) -> None:
     for d in docs:
         label = f"{d['doc_type'].upper()} · {d['person_name']} · {d['filename']}"
         with st.expander(label):
-            st.caption(
-                f"Added {d['created_at'][:10]}. Numbers held: {', '.join(d['fields']) or 'none'}")
-            open_key = f"open_{d['id']}"
-            if st.toggle("Show / download", key=open_key):
-                data = attempt(api.file, d["id"])
-                if data:
-                    show_file(
-                        {"name": d["filename"], "mime": d["mime"], "data": data}, f"dl_{d['id']}")
-            with st.form(f"field_{d['id']}"):
-                st.write("Type in a number the scanner missed")
-                name = st.selectbox(
-                    "Which number", FIELD_NAMES, key=f"fname_{d['id']}")
-                value = st.text_input("Value", key=f"fval_{d['id']}")
-                if st.form_submit_button("Save number") and value.strip():
-                    if attempt(api.set_field, d["id"], name, value.strip()):
-                        st.success("Saved.")
-            if st.session_state.get("confirm_delete") == d["id"]:
-                st.warning("Delete this document permanently?")
-                yes, no = st.columns(2)
-                if yes.button("Yes, delete", key=f"yes_{d['id']}", type="primary"):
-                    if attempt(api.delete_document, d["id"]):
-                        st.session_state.pop("confirm_delete")
-                        st.rerun()
-                if no.button("Keep it", key=f"no_{d['id']}"):
-                    st.session_state.pop("confirm_delete")
-                    st.rerun()
-            elif st.button("🗑 Delete", key=f"del_{d['id']}"):
-                st.session_state["confirm_delete"] = d["id"]
-                st.rerun()
+            _document_card(api, d)
 
 
 # ---------------------------------------------------------------- chat view
+def _send_prompt(api: ApiClient, messages: list, prompt: str, provider: str | None) -> None:
+    history = [{"role": m["role"], "content": m["content"][:4000]}
+               for m in messages][-20:]
+    messages.append({"role": "user", "content": prompt})
+    st.session_state.pop("pending_email", None)
+    with st.spinner("Thinking…"):
+        reply = attempt(api.chat, prompt, history, provider)
+    if reply is None:
+        messages.pop()
+        return
+    entry = {"role": "assistant", "content": reply["text"]}
+    shown = reply["show_document"]
+    if shown:
+        data = attempt(api.file, shown["document_id"])
+        if data:
+            entry["file"] = {"name": shown["filename"],
+                             "mime": shown["mime"], "data": data}
+    messages.append(entry)
+    if reply["email_action"]:
+        st.session_state["pending_email"] = reply["email_action"]
+
+
+def _pending_email_box(api: ApiClient, messages: list, action: dict) -> None:
+    with st.container(border=True):
+        st.write(
+            f"**Send this email?**  \n{action['description']}  \nTo: `{action['to']}`")
+        send, cancel = st.columns(2)
+        if send.button("✅ Send", type="primary"):
+            if attempt(api.confirm_email, action["token"], None):
+                messages.append(
+                    {"role": "assistant", "content": f"Email sent to {action['to']}."})
+                st.session_state.pop("pending_email")
+                st.rerun()
+        if cancel.button("Cancel"):
+            messages.append(
+                {"role": "assistant", "content": "Okay, I didn't send anything."})
+            st.session_state.pop("pending_email")
+            st.rerun()
+
+
 def chat_page(api: ApiClient, provider: str | None) -> None:
     st.header("Ask about your documents")
     messages = st.session_state.setdefault("messages", [])
@@ -178,25 +240,7 @@ def chat_page(api: ApiClient, provider: str | None) -> None:
 
     prompt = st.chat_input("Ask something…")
     if prompt:
-        history = [{"role": m["role"], "content": m["content"][:4000]}
-                   for m in messages][-20:]
-        messages.append({"role": "user", "content": prompt})
-        st.session_state.pop("pending_email", None)
-        with st.spinner("Thinking…"):
-            reply = attempt(api.chat, prompt, history, provider)
-        if reply is None:
-            messages.pop()
-        else:
-            entry = {"role": "assistant", "content": reply["text"]}
-            if reply["show_document"]:
-                shown = reply["show_document"]
-                data = attempt(api.file, shown["document_id"])
-                if data:
-                    entry["file"] = {"name": shown["filename"],
-                                     "mime": shown["mime"], "data": data}
-            messages.append(entry)
-            if reply["email_action"]:
-                st.session_state["pending_email"] = reply["email_action"]
+        _send_prompt(api, messages, prompt, provider)
 
     for i, m in enumerate(messages):
         with st.chat_message(m["role"]):
@@ -206,22 +250,7 @@ def chat_page(api: ApiClient, provider: str | None) -> None:
 
     action = st.session_state.get("pending_email")
     if action:
-        with st.container(border=True):
-            st.write(
-                f"**Send this email?**  \n{action['description']}  \nTo: `{action['to']}`")
-            send, cancel = st.columns(2)
-            if send.button("✅ Send", type="primary"):
-                result = attempt(api.confirm_email, action["token"], None)
-                if result:
-                    messages.append(
-                        {"role": "assistant", "content": f"Email sent to {action['to']}."})
-                    st.session_state.pop("pending_email")
-                    st.rerun()
-            if cancel.button("Cancel"):
-                messages.append(
-                    {"role": "assistant", "content": "Okay, I didn't send anything."})
-                st.session_state.pop("pending_email")
-                st.rerun()
+        _pending_email_box(api, messages, action)
 
 
 # ---------------------------------------------------------------- main
