@@ -56,14 +56,47 @@ def _catalog(db, user_id: int) -> str:
     return "\n".join(f"- {d.doc_type} ({d.person_name})" for d in items) or "- none yet"
 
 
-def chat(db, *, user, message: str, history: list | None, llm: LLMProvider, embedder, store, files) -> ChatReply:
-    ctx = ToolContext(db, user, embedder, store,
-                      files, list_people(db, user.id))
+def _opening_messages(db, user, message: str, history: list | None) -> list:
+    """The system prompt (with the user's document catalog), the cleaned history, then the new question."""
     messages = [{"role": "system", "content": SYSTEM.format(
         catalog=_catalog(db, user.id))}]
     messages += _clean_history(history)
     messages.append(
         {"role": "user", "content": redact_sensitive(message or "")[:MAX_MESSAGE]})
+    return messages
+
+
+def _note_text(parts: list, text: str | None) -> None:
+    if (text or "").strip():
+        parts.append(text.strip())
+
+
+def _run_tool_calls(ctx, messages: list, calls, parts: list, show_id, email):
+    """Runs the tools the AI asked for and records each answer in `messages`.
+
+    Returns the document to show, the email action, and whether the AI has to answer next. The first two
+    carry over from earlier rounds: a later call only replaces them when it has something of its own."""
+    needs_model = False
+    for i, call in enumerate(calls):
+        if i >= MAX_CALLS:  # every call id must get an answer, but only a few are run
+            messages.append({"role": "tool", "tool_call_id": call.id,
+                             "content": "Skipped: too many requests at once."})
+            continue
+        out = run_tool(ctx, call.name, call.arguments)
+        messages.append(
+            {"role": "tool", "tool_call_id": call.id, "content": out.for_model})
+        if out.user_text:
+            parts.append(out.user_text)
+        show_id = out.show_document_id or show_id
+        email = out.email_action or email
+        needs_model = needs_model or out.needs_model
+    return show_id, email, needs_model
+
+
+def chat(db, *, user, message: str, history: list | None, llm: LLMProvider, embedder, store, files) -> ChatReply:
+    ctx = ToolContext(db, user, embedder, store,
+                      files, list_people(db, user.id))
+    messages = _opening_messages(db, user, message, history)
 
     parts, show_id, email, provider = [], None, None, getattr(llm, "name", "")
     try:
@@ -71,24 +104,11 @@ def chat(db, *, user, message: str, history: list | None, llm: LLMProvider, embe
             resp = llm.chat(messages, tools=TOOLS)
             provider = resp.provider
             if not resp.tool_calls:
-                if (resp.text or "").strip():
-                    parts.append(resp.text.strip())
+                _note_text(parts, resp.text)
                 break
             messages.append(resp.message)
-            needs_model = False
-            for i, call in enumerate(resp.tool_calls):
-                if i >= MAX_CALLS:  # every call id must get an answer, but only a few are run
-                    messages.append({"role": "tool", "tool_call_id": call.id,
-                                    "content": "Skipped: too many requests at once."})
-                    continue
-                out = run_tool(ctx, call.name, call.arguments)
-                messages.append(
-                    {"role": "tool", "tool_call_id": call.id, "content": out.for_model})
-                if out.user_text:
-                    parts.append(out.user_text)
-                show_id = out.show_document_id or show_id
-                email = out.email_action or email
-                needs_model = needs_model or out.needs_model
+            show_id, email, needs_model = _run_tool_calls(
+                ctx, messages, resp.tool_calls, parts, show_id, email)
             if not needs_model:  # the answer is already complete, and the AI never saw the sensitive values
                 break
         else:

@@ -53,25 +53,26 @@ def _fields_of(user_id: int, doc: Document) -> dict:
     return crypto.decrypt_json(user_id, doc.fields_enc) if doc.fields_enc else {}
 
 
-def add_document(db, *, user_id: int, filename: str, data: bytes, files: FileStore, embedder: Embedder,
-                 store: VectorStore, person_id: int | None = None, doc_type: str | None = None) -> AddResult:
-    s = get_settings()
-    if db.scalar(select(func.count()).select_from(Document).where(Document.user_id == user_id)) >= s.max_documents_per_user:
+def _check_quota(db, user_id: int, settings) -> None:
+    count = db.scalar(select(func.count()).select_from(
+        Document).where(Document.user_id == user_id))
+    if count >= settings.max_documents_per_user:
         raise QuotaExceeded(
-            f"Document limit reached ({s.max_documents_per_user})")
-    if person_id is None:  # default: the account's own "self" profile
-        person = db.scalar(select(Person).where(
-            Person.user_id == user_id).order_by(Person.id))
-        if person is None:
-            raise NotFound("Person not found")
-    else:
-        person = get_person(db, user_id, person_id)
+            f"Document limit reached ({settings.max_documents_per_user})")
 
-    # may raise UnsupportedFileType / FileTooLarge
-    processed = process_document(data)
-    chosen = normalize_doc_type(doc_type) if doc_type else None
-    final_type = chosen or processed.suggested_type or "other"
 
+def _owner_person(db, user_id: int, person_id: int | None):
+    """The chosen family member, or by default the account's own "self" profile."""
+    if person_id is not None:
+        return get_person(db, user_id, person_id)
+    person = db.scalar(select(Person).where(
+        Person.user_id == user_id).order_by(Person.id))
+    if person is None:
+        raise NotFound("Person not found")
+    return person
+
+
+def _upload_warnings(chosen: str | None, processed) -> list[str]:
     warnings = []
     if chosen and processed.suggested_type and chosen != processed.suggested_type:
         warnings.append(
@@ -82,28 +83,53 @@ def add_document(db, *, user_id: int, filename: str, data: bytes, files: FileSto
     if any(k.endswith("_unverified") for k in processed.fields):
         warnings.append("A number was read but failed its check, so it may contain a reading error. "
                         "Compare it with the original.")
+    return warnings
 
-    old_ids = []
-    if final_type in UNIQUE_TYPES:  # a new upload replaces the old one of the same kind
-        old_ids = list(db.scalars(select(Document.id).where(
-            Document.user_id == user_id, Document.person_id == person.id, Document.doc_type == final_type)))
 
+def _same_kind_ids(db, user_id: int, person_id: int, doc_type: str) -> list[int]:
+    """Ids of the documents a new upload replaces (only for types where a person has just one)."""
+    if doc_type not in UNIQUE_TYPES:
+        return []
+    return list(db.scalars(select(Document.id).where(
+        Document.user_id == user_id, Document.person_id == person_id, Document.doc_type == doc_type)))
+
+
+def _store_and_index(db, *, user_id: int, person, doc_type: str, filename: str, data: bytes, processed,
+                     files: FileStore, embedder: Embedder, store: VectorStore) -> Document:
     key = files.save(user_id, data)
     try:
-        doc = Document(user_id=user_id, person_id=person.id, doc_type=final_type,
+        doc = Document(user_id=user_id, person_id=person.id, doc_type=doc_type,
                        filename=re.sub(r"[\r\n/\\]", "_",
                                        filename or "")[:255] or "document",
                        mime=processed.mime, storage_key=key,
                        fields_enc=crypto.encrypt_json(user_id, processed.fields) if processed.fields else None)
         db.add(doc)
         db.flush()
-        index_chunks(db, user_id=user_id, document_id=doc.id, person_id=person.id, doc_type=final_type,
+        index_chunks(db, user_id=user_id, document_id=doc.id, person_id=person.id, doc_type=doc_type,
                      chunks=processed.chunks, embedder=embedder, store=store)
         db.commit()
     except Exception:
         db.rollback()
         files.delete(user_id, key)  # no orphan file if indexing failed
         raise
+    return doc
+
+
+def add_document(db, *, user_id: int, filename: str, data: bytes, files: FileStore, embedder: Embedder,
+                 store: VectorStore, person_id: int | None = None, doc_type: str | None = None) -> AddResult:
+    _check_quota(db, user_id, get_settings())
+    person = _owner_person(db, user_id, person_id)
+
+    # may raise UnsupportedFileType / FileTooLarge
+    processed = process_document(data)
+    chosen = normalize_doc_type(doc_type) if doc_type else None
+    final_type = chosen or processed.suggested_type or "other"
+
+    warnings = _upload_warnings(chosen, processed)
+    old_ids = _same_kind_ids(db, user_id, person.id, final_type)
+
+    doc = _store_and_index(db, user_id=user_id, person=person, doc_type=final_type, filename=filename, data=data,
+                           processed=processed, files=files, embedder=embedder, store=store)
     for old_id in old_ids:
         delete_document(db, user_id, old_id, files, store)
     return AddResult(doc.id, final_type, sorted(processed.fields), warnings, len(old_ids))
