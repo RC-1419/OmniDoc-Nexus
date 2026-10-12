@@ -77,9 +77,28 @@ services:
     depends_on:
       - ui
       - api
+  prometheus:
+    logging: *logging
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    mem_limit: 300m
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=500MB
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
 
 volumes:
   pgdata:
   vault:
   caddy_data:
   caddy_config:
+  prometheus_data:
