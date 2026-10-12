@@ -12,7 +12,7 @@ DIM = 64
 def _vector(text: str) -> list[float]:
     v = [0.0] * DIM
     for word in re.findall(r"[a-z0-9]+", text.lower()):
-        v[int(hashlib.md5(word.encode()).hexdigest(), 16) % DIM] += 1.0
+        v[int(hashlib.sha256(word.encode()).hexdigest(), 16) % DIM] += 1.0
     norm = math.sqrt(sum(x * x for x in v)) or 1.0
     return [x / norm for x in v]
 
