@@ -21,3 +21,4 @@ loadtest/users.csv
 loadtest/results.jtl
 loadtest/report/
 jmeter.log
+sonar_run.bat

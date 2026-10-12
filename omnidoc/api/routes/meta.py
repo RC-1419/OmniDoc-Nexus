@@ -14,7 +14,8 @@ def providers():
     Only names are returned, never keys. Public so it works on the login screen."""
     names = configured_providers()
     default = get_settings().default_llm
+    # the default, else the first one, else none
+    chosen = default if default in names else next(iter(names), None)
     return ProvidersOut(llm=[ProviderOut(name=n, label=provider_label(n)) for n in names],
-                        default_llm=default if default in names else (
-                            names[0] if names else None),
+                        default_llm=chosen,
                         email=configured_email_providers())

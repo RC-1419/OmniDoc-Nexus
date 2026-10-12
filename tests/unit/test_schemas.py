@@ -19,8 +19,9 @@ def test_signup_email_is_optional():
 
 @pytest.mark.parametrize("name", ["ab", "x" * 33, "bad name", "bad!", "emoji😀", "a/b", ""])
 def test_signup_rejects_bad_usernames(name):
+    data = ok(username=name)
     with pytest.raises(ValidationError):
-        SignupIn(**ok(username=name))
+        SignupIn(**data)
 
 
 @pytest.mark.parametrize("name", ["abc", "a" * 32, "A.b-c_d", "123"])
@@ -30,8 +31,9 @@ def test_signup_accepts_edge_usernames(name):
 
 @pytest.mark.parametrize("password", ["", "1234567", "x" * 73])
 def test_signup_rejects_bad_passwords(password):
+    data = ok(password=password)
     with pytest.raises(ValidationError):
-        SignupIn(**ok(password=password))
+        SignupIn(**data)
 
 
 @pytest.mark.parametrize("password", ["x" * 8, "x" * 72])
@@ -40,8 +42,9 @@ def test_signup_accepts_edge_passwords(password):
 
 
 def test_signup_rejects_a_bad_email():
+    data = ok(email="not-an-email")
     with pytest.raises(ValidationError):
-        SignupIn(**ok(email="not-an-email"))
+        SignupIn(**data)
 
 
 def test_chat_message_limits():

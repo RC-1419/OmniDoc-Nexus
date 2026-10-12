@@ -2,6 +2,8 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+USERS_ID = "users.id"
+
 
 class Base(DeclarativeBase):
     pass
@@ -23,7 +25,7 @@ class Person(Base):
     __tablename__ = "persons"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey(
-        "users.id", ondelete="CASCADE"), index=True)
+        USERS_ID, ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     relation: Mapped[str] = mapped_column(String(40), default="self")
 
@@ -33,7 +35,7 @@ class Document(Base):
     __table_args__ = (Index("ix_documents_user_type", "user_id", "doc_type"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey(
-        "users.id", ondelete="CASCADE"), index=True)
+        USERS_ID, ondelete="CASCADE"), index=True)
     person_id: Mapped[int] = mapped_column(
         ForeignKey("persons.id", ondelete="CASCADE"))
     doc_type: Mapped[str] = mapped_column(String(60))
@@ -52,7 +54,7 @@ class Chunk(Base):
     # same id as the Pinecone vector
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey(
-        "users.id", ondelete="CASCADE"), index=True)
+        USERS_ID, ondelete="CASCADE"), index=True)
     document_id: Mapped[int] = mapped_column(ForeignKey(
         "documents.id", ondelete="CASCADE"), index=True)
     text_enc: Mapped[str] = mapped_column(Text)  # encrypted chunk text
@@ -62,7 +64,7 @@ class EmailLog(Base):
     __tablename__ = "email_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey(
-        "users.id", ondelete="CASCADE"), index=True)
+        USERS_ID, ondelete="CASCADE"), index=True)
     to_address: Mapped[str] = mapped_column(String(255))
     provider: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(10))  # "sent" or "failed"

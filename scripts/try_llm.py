@@ -44,12 +44,12 @@ def step(label, fn):
 for n in names:
     llm = get_llm(n)
     print(f"\n== {provider_label(n)} ({llm.model}) ==")
-    step("plain chat:", lambda: repr((llm.chat(
+    step("plain chat:", lambda llm=llm: repr((llm.chat(
         [{"role": "user", "content": "Reply with the single word: pong"}]).text or "").strip()[:40]))
-    step("json mode:", lambda: (llm.chat(
+    step("json mode:", lambda llm=llm: (llm.chat(
         [{"role": "system", "content": 'Classify the request. Return only JSON like {"action": "answer" | "show_document" | "email_document"}.'},
          {"role": "user", "content": "Email my PAN card to my sister"}], json_mode=True).text or "").strip()[:80])
-    step("tool calling:", lambda: str([(c.name, c.arguments) for c in llm.chat(
+    step("tool calling:", lambda llm=llm: str([(c.name, c.arguments) for c in llm.chat(
         [{"role": "user", "content": "What is my PAN number?"}], tools=TOOLS).tool_calls] or "no tool call"))
 
 print("\n== fallback ==")

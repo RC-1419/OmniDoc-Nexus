@@ -30,16 +30,17 @@ def test_enforce_allows_then_refuses(monkeypatch):
 
 def test_current_user_needs_a_valid_token(monkeypatch):
     monkeypatch.setattr(deps, "decode_access_token", lambda token: None)
+    db = SimpleNamespace(get=lambda model, pk: None)
     with pytest.raises(HTTPException) as e:
-        deps.get_current_user(
-            "garbage", SimpleNamespace(get=lambda model, pk: None))
+        deps.get_current_user("garbage", db)
     assert e.value.status_code == 401 and e.value.headers["WWW-Authenticate"] == "Bearer"
 
 
 def test_current_user_rejects_a_token_for_a_deleted_user(monkeypatch):
     monkeypatch.setattr(deps, "decode_access_token", lambda token: 5)
+    db = SimpleNamespace(get=lambda model, pk: None)
     with pytest.raises(HTTPException) as e:
-        deps.get_current_user("t", SimpleNamespace(get=lambda model, pk: None))
+        deps.get_current_user("t", db)
     assert e.value.status_code == 401
 
 

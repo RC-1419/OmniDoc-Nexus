@@ -21,7 +21,8 @@ OUT = Path(__file__).with_name("users.csv")
 
 def make_pdf(lines):
     """A tiny valid PDF made by hand, so no extra library is needed."""
-    content = "BT /F1 12 Tf 50 750 Td 14 TL " + " ".join(f"({l}) Tj T*" for l in lines) + " ET"
+    content = "BT /F1 12 Tf 50 750 Td 14 TL " + \
+        " ".join(f"({l}) Tj T*" for l in lines) + " ET"
     objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
             f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
@@ -48,16 +49,65 @@ def is_local(url: str) -> bool:
     return (urlparse(url).hostname or "") in ("localhost", "127.0.0.1", "::1")
 
 
-def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+class SetupError(Exception):
+    """A problem worth telling the user about; the message is printed as is."""
+
+
+def sign_up(c, name, password, known, out):
+    r = c.post("/auth/signup", json={"username": name, "password": password})
+    if r.status_code == 429:
+        raise SetupError(f"Stopped at {name}: sign-up limit reached ({r.json().get('detail')}). "
+                         "Wait, or raise SIGNUP_PER_HOUR_PER_IP on a local server. See loadtest/README.md.")
+    if r.status_code == 409 and name not in known:
+        raise SetupError(
+            f"{name} already exists but its password is not in {out}. Use --prefix with another word.")
+    if r.status_code not in (201, 409):
+        raise SetupError(
+            f"Sign-up failed for {name}: {r.status_code} {r.text}")
+
+
+def log_in(c, name, password):
+    r = c.post("/auth/login", data={"username": name, "password": password})
+    if r.status_code != 200:
+        raise SetupError(f"Login failed for {name}: {r.status_code} {r.text}")
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def ensure_document(c, name, auth, pdf):
+    if c.get("/documents", headers=auth).json():
+        return
+    up = c.post("/documents", headers=auth, data={"doc_type": "other"},
+                files={"file": ("loadtest.pdf", pdf, "application/pdf")})
+    if up.status_code != 201:
+        raise SetupError(
+            f"Upload failed for {name}: {up.status_code} {up.text}")
+
+
+def write_users(out, rows):
+    with out.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["username", "password"])
+        w.writerows(rows)
+    try:
+        os.chmod(out, 0o600)
+    except OSError:
+        pass
+
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--base-url", default="http://localhost:8000/v1")
     p.add_argument("--count", type=int, default=3)
     p.add_argument("--prefix", default="loadtest")
     p.add_argument("--out", type=Path, default=OUT)
     p.add_argument("--allow-remote", action="store_true",
                    help="needed to create test users on a server that is not on this computer")
-    args = p.parse_args(argv)
+    return p.parse_args(argv)
 
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
     if not is_local(args.base_url) and not args.allow_remote:
         print("That address is not on this computer. Add --allow-remote if you really want test users there.")
         return 2
@@ -65,43 +115,20 @@ def main(argv=None) -> int:
     known = read_existing(args.out)
     pdf = make_pdf(["Load test document", "Nothing personal in this file"])
     rows = []
-    with httpx.Client(base_url=args.base_url.rstrip("/"), timeout=30) as c:
-        for i in range(1, args.count + 1):
-            name = f"{args.prefix}{i}"
-            password = known.get(name) or secrets.token_urlsafe(12)
-            r = c.post("/auth/signup", json={"username": name, "password": password})
-            if r.status_code == 429:
-                print(f"Stopped at {name}: sign-up limit reached ({r.json().get('detail')}). "
-                      "Wait, or raise SIGNUP_PER_HOUR_PER_IP on a local server. See loadtest/README.md.")
-                return 1
-            if r.status_code == 409 and name not in known:
-                print(f"{name} already exists but its password is not in {args.out}. Use --prefix with another word.")
-                return 1
-            if r.status_code not in (201, 409):
-                print(f"Sign-up failed for {name}: {r.status_code} {r.text}")
-                return 1
-            r = c.post("/auth/login", data={"username": name, "password": password})
-            if r.status_code != 200:
-                print(f"Login failed for {name}: {r.status_code} {r.text}")
-                return 1
-            auth = {"Authorization": f"Bearer {r.json()['access_token']}"}
-            if not c.get("/documents", headers=auth).json():
-                up = c.post("/documents", headers=auth, data={"doc_type": "other"},
-                            files={"file": ("loadtest.pdf", pdf, "application/pdf")})
-                if up.status_code != 201:
-                    print(f"Upload failed for {name}: {up.status_code} {up.text}")
-                    return 1
-            rows.append((name, password))
-            print(f"ready: {name}")
-
-    with args.out.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["username", "password"])
-        w.writerows(rows)
     try:
-        os.chmod(args.out, 0o600)
-    except OSError:
-        pass
+        with httpx.Client(base_url=args.base_url.rstrip("/"), timeout=30) as c:
+            for i in range(1, args.count + 1):
+                name = f"{args.prefix}{i}"
+                password = known.get(name) or secrets.token_urlsafe(12)
+                sign_up(c, name, password, known, args.out)
+                ensure_document(c, name, log_in(c, name, password), pdf)
+                rows.append((name, password))
+                print(f"ready: {name}")
+    except SetupError as exc:
+        print(exc)
+        return 1
+
+    write_users(args.out, rows)
     print(f"Wrote {args.out} with {len(rows)} users.")
     return 0
 

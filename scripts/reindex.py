@@ -31,7 +31,9 @@ BATCH = 64  # chunks embedded and written per round (keeps memory small)
 
 def user_ids(db, only: int | None) -> list[int]:
     ids = sorted(set(db.scalars(select(Chunk.user_id))))
-    return [only] if only is not None and only in ids else ([] if only is not None else ids)
+    if only is None:
+        return ids
+    return [only] if only in ids else []
 
 
 def reindex_user(db, user_id: int, embedder, store, dry_run: bool) -> tuple[int, int]:
