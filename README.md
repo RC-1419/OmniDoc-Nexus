@@ -154,7 +154,7 @@ docker run --rm -e SONAR_HOST_URL=http://host.docker.internal:9000 -e SONAR_TOKE
 
 **In CI** the last step of the test job scans automatically when a `SONAR_TOKEN` secret exists (SonarQube Cloud by default; add a `SONAR_HOST_URL` secret to use your own server). Without the secret the step is skipped.
 
-## Monitoring (Prometheus)
+## Monitoring (Prometheus and Alertmanager)
 
 The API publishes counts and timings per route at `/metrics` (route patterns only, never user names, ids or tokens). Caddy answers 404 for `/api/metrics`, so only Prometheus, inside the Docker network, can read it. Prometheus is bound to `127.0.0.1:9090` on the server; open it through a tunnel:
 
@@ -170,7 +170,37 @@ histogram_quantile(0.95, sum by (le) (rate(http_request_duration_highr_seconds_b
 sum(rate(http_requests_total{status="5xx"}[5m]))                                           # server errors per second
 ```
 
-Alert rules (`deploy/prometheus-rules.yml`) show on the Alerts page. There is no Alertmanager, so nothing is emailed.
+### Email alerts (Alertmanager)
+
+Alert rules (`deploy/prometheus-rules.yml`) show on the Prometheus Alerts page. When one fires, Prometheus hands it to Alertmanager (`deploy/alertmanager.yml`), which emails it through the same Gmail SMTP account the app uses. Alertmanager has no public port: only Prometheus, inside Docker, can reach it.
+
+| Alert | Fires when |
+|---|---|
+| `ApiDown` | Prometheus cannot reach the API for 2 minutes |
+| `ServerErrors` | more than 3 server errors (5xx) per minute for 5 minutes |
+| `SlowRequests` | 95% of requests take longer than 5 seconds for 10 minutes |
+| `ManyFailedLogins` | more than 50 failed or blocked logins in 10 minutes |
+| `ApiMemoryHigh` | the API process uses more than 600 MB for 10 minutes |
+
+Emails are grouped (one mail per problem, a reminder every 12 hours while it stays open) and a "resolved" mail follows when it clears.
+
+**One-time setup on the server.** The SMTP password is not in git. Alertmanager reads it from a file next to the compose file; create it from the app's `.env` (run in `~/omnidoc`):
+
+```bash
+grep '^SMTP_PASSWORD=' .env | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\n' > alertmanager_smtp_password
+sudo chown ubuntu:65534 alertmanager_smtp_password && sudo chmod 640 alertmanager_smtp_password
+```
+
+Copy `deploy/alertmanager.yml`, `deploy/prometheus.yml` and `deploy/prometheus-rules.yml` into `~/omnidoc/` **before** the compose file (otherwise Docker creates folders with those names), then `docker compose up -d` and `docker compose restart prometheus`. These config files are not copied by `update.sh`; after editing one, copy it again and restart that container.
+
+**Test it** (sends one fake alert, nothing in the app is touched; the mail arrives within about 30 seconds):
+
+```bash
+docker compose exec alertmanager amtool alert add alertname=TestAlert --annotation=summary="Test alert" --alertmanager.url=http://localhost:9093
+curl -s http://127.0.0.1:9090/api/v1/alertmanagers      # should list http://alertmanager:9093
+```
+
+If no mail arrives, `docker compose logs alertmanager --tail 20` shows the SMTP error.
 
 ## Load testing (JMeter)
 
@@ -248,6 +278,6 @@ Email works through SMTP by default. To use the Gmail API instead, create an OAu
 
 ## Status
 
-Working: sign-up and login, uploads, family members, chat, email with single-use confirmation, versioned API, automatic deployment, nightly backups copied off the server, log retention, re-indexing, database migrations, Prometheus metrics, JMeter load tests, pytest suite, SonarQube analysis.
+Working: sign-up and login, uploads, family members, chat, email with single-use confirmation, versioned API, automatic deployment, nightly backups copied off the server, log retention, re-indexing, database migrations, Prometheus metrics with emailed alerts (Alertmanager), JMeter load tests, pytest suite, SonarQube analysis.
 Not enabled: the sendlib email sender (waiting for its API details). The Gmail API is optional and needs a published Google consent screen; email works through SMTP.
-Ideas for later: encrypting the database dump before it is uploaded, running `scripts.migrations check` in CI, Alertmanager for emailed alerts.
+Ideas for later: encrypting the database dump before it is uploaded, running `scripts.migrations check` in CI.
