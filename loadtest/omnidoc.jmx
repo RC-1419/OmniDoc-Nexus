@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
 <hashTree>
-<TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Omnidoc API load test" enabled="true">
+<TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="OmniDoc API load test" enabled="true">
 <stringProp name="TestPlan.comments">Read-only traffic: login, /auth/me, /providers, document list, document download. No chat, so no AI quota is used. Settings come from -J properties (see loadtest/README.md).</stringProp>
 <boolProp name="TestPlan.functional_mode">false</boolProp>
 <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>

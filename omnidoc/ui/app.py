@@ -1,4 +1,4 @@
-"""Omnidoc Nexus - Streamlit chatbot. A plain client of the API: start the API first, then
+"""OmniDoc Nexus - Streamlit chatbot. A plain client of the API: start the API first, then
     streamlit run omnidoc/ui/app.py
 Set OMNIDOC_API_URL if the API is not at http://127.0.0.1:8000."""
 import os
@@ -15,7 +15,7 @@ from omnidoc.ui.api_client import ApiClient, ApiError, Unauthorized  # noqa: E40
 API_URL = os.environ.get("OMNIDOC_API_URL", "http://127.0.0.1:8000")
 FIELD_NAMES = ["aadhaar_number", "pan_number", "passport_number"]
 
-st.set_page_config(page_title="Omnidoc Nexus", page_icon="🔐", layout="wide")
+st.set_page_config(page_title="OmniDoc Nexus", page_icon="🔐", layout="wide")
 
 
 def visitor_ip() -> str | None:

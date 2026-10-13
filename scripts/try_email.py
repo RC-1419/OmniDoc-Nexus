@@ -21,13 +21,13 @@ for name in names:
     print(f"\n== {provider.label} ==")
     try:
         provider.send(OutgoingEmail(
-            args.to, "Omnidoc Nexus test: plain", "This is a test message."))
+            args.to, "OmniDoc Nexus test: plain", "This is a test message."))
         print("plain email:      sent")
     except EmailError as e:
         print("plain email:      FAILED:", e)
     if provider.can_attach():
         try:
-            provider.send(OutgoingEmail(args.to, "Omnidoc Nexus test: attachment", "Test with a fake attachment.",
+            provider.send(OutgoingEmail(args.to, "OmniDoc Nexus test: attachment", "Test with a fake attachment.",
                                         Attachment("test.txt", "text/plain", b"fake attachment, not a real document")))
             print("with attachment:  sent")
         except EmailError as e:
@@ -39,6 +39,6 @@ for name in names:
 if "smtp" in names:
     print("\n== fallback ==")
     result = send_with_fallback([SmtpProvider(password="wrong-password"), get_email_provider("smtp")],
-                                OutgoingEmail(args.to, "Omnidoc Nexus test: fallback", "Sent after a failed first attempt."))
+                                OutgoingEmail(args.to, "OmniDoc Nexus test: fallback", "Sent after a failed first attempt."))
     print(
         f"wrong password first, then the real one: sent by {result.provider}; failed first: {result.failed}")
