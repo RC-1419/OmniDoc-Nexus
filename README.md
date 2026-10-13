@@ -181,6 +181,8 @@ Alert rules (`deploy/prometheus-rules.yml`) show on the Prometheus Alerts page. 
 | `SlowRequests` | 95% of requests take longer than 5 seconds for 10 minutes |
 | `ManyFailedLogins` | more than 50 failed or blocked logins in 10 minutes |
 | `ApiMemoryHigh` | the API process uses more than 600 MB for 10 minutes |
+| `BackupStale` | no fully successful backup for 36 hours (checked 30 minutes before it fires) |
+| `BackupMetricMissing` | Prometheus cannot see the backup timestamp (exporter down, or `backup.sh` not run since it was added) |
 
 Emails are grouped (one mail per problem, a reminder every 12 hours while it stays open) and a "resolved" mail follows when it clears.
 
@@ -228,6 +230,8 @@ See `deploy/env.production.example` for the production settings. Use new secrets
 `backup.sh` writes `~/backups/db-<time>.sql.gz.age` and `vault-<time>.tar.gz.age`, then uploads both to the S3 bucket named at the top of the script. Both files are encrypted with [age](https://github.com/FiloSottile/age) using a **public** key that is written in the script, so the server can lock backups but cannot open them. The **private key** (`omnidoc-backup-key.txt`, made with `age-keygen`) lives only on the owner's computer and in a password manager. **If it is lost, every backup is unreadable**: keep it in two places and never put it on the server or in git. The server's IAM role may only add files to the bucket (`s3:PutObject` and `s3:ListBucket`), so a break-in on the server cannot read or erase old backups. The `.env` file is deliberately not included: keep a copy of it in a password manager, because without `VAULT_KEY` the vault cannot be decrypted.
 
 The server is stopped when not in use and cron does not catch up on missed runs, so `backup.sh` runs from two cron lines: nightly at 02:30 and 5 minutes after every start (`@reboot sleep 300 && flock -n /tmp/omnidoc-backup.lock /home/ubuntu/omnidoc/backup.sh`). Run `~/omnidoc/backup.sh` by hand before stopping the server to capture the day's changes. Local copies are deleted after 7 days; the S3 lifecycle rule removes bucket copies after 30. Logs: `journalctl -t omnidoc-backup`.
+
+**Stale-backup alert.** After a fully successful run, `backup.sh` writes the time to `~/backups/metrics/backup.prom`. A small `node-exporter` container (all normal collectors off, no public port) publishes it, Prometheus scrapes it as the `backup-metrics` job, and `BackupStale` emails you if 36 hours pass without a success. A failed upload writes nothing, so it counts as a failure. See `deploy/node-exporter.compose-snippet.yml`. To see the age of the last backup in seconds, in the Prometheus query box: `time() - omnidoc_backup_last_success_timestamp_seconds`.
 
 One-time setup of a new server: `sudo apt-get install -y age`, put the public key in `AGE_RECIPIENT` in `backup.sh`, and add the two cron lines.
 

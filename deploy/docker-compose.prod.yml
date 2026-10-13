@@ -111,6 +111,18 @@ services:
       - ./alertmanager_smtp_password:/etc/alertmanager/smtp_password:ro
       - alertmanager_data:/alertmanager
 
+  node-exporter:
+    logging: *logging
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    mem_limit: 32m
+    command:
+      - --collector.disable-defaults
+      - --collector.textfile
+      - --collector.textfile.directory=/textfiles
+    volumes:
+      - /home/ubuntu/backups/metrics:/textfiles:ro
+
 volumes:
   pgdata:
   vault:

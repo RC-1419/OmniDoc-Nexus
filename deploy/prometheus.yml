@@ -22,3 +22,8 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
+
+  # backup.sh writes the time of its last successful run; node-exporter (textfile only) publishes it
+  - job_name: backup-metrics
+    static_configs:
+      - targets: ["node-exporter:9100"]

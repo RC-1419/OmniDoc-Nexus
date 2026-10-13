@@ -33,3 +33,17 @@ groups:
         for: 10m
         annotations:
           summary: "The API process uses more than 600 MB of memory"
+
+      - alert: BackupStale
+        # backups run nightly and after every server start, so 36 hours without one means something is wrong.
+        # "for" gives the start-up backup (5 minutes after boot) time to finish before this can fire.
+        expr: time() - omnidoc_backup_last_success_timestamp_seconds > 36 * 3600
+        for: 30m
+        annotations:
+          summary: "No successful backup for over 36 hours (check: journalctl -t omnidoc-backup)"
+
+      - alert: BackupMetricMissing
+        expr: absent(omnidoc_backup_last_success_timestamp_seconds)
+        for: 30m
+        annotations:
+          summary: "Prometheus cannot see the backup timestamp (exporter down, or backup.sh never finished since the change)"

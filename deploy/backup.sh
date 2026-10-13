@@ -16,6 +16,7 @@ KEEP_DAYS=7
 BACKUP_DIR="$HOME/backups"
 STAMP=$(date +%Y%m%d-%H%M%S)
 VAULT_VOLUME="omnidoc_vault"        # <folder name>_vault, created by docker compose
+METRICS_DIR="$BACKUP_DIR/metrics"        # read by node-exporter so Prometheus can alert on a stale backup
 S3_BUCKET="omnidoc-backups-rohit-2026"   # the server's role may only ADD files here, never read or delete
 AGE_RECIPIENT="age1wn7y3qaejzl2fs9nuqhg56djvhnyap7frl0h2sf06hj0dgx5jpqs3hgfz8"   # public key: safe to keep here
 export PATH="$PATH:/snap/bin"            # cron's PATH does not include the snap-installed aws tool
@@ -71,4 +72,16 @@ if [ "$UPLOAD_FAILED" -eq 1 ]; then
     echo "backup finished locally, but the off-server copy FAILED"
     exit 1
 fi
+# 5. Record the time of this fully successful backup for Prometheus (alert BackupStale, see deploy/).
+#    The folder and file must be readable by the exporter container, hence the explicit permissions.
+mkdir -p "$METRICS_DIR"
+chmod 755 "$METRICS_DIR"
+{
+    echo "# HELP omnidoc_backup_last_success_timestamp_seconds Unix time of the last fully successful backup"
+    echo "# TYPE omnidoc_backup_last_success_timestamp_seconds gauge"
+    echo "omnidoc_backup_last_success_timestamp_seconds $(date +%s)"
+} > "$METRICS_DIR/backup.prom.tmp"
+chmod 644 "$METRICS_DIR/backup.prom.tmp"
+mv "$METRICS_DIR/backup.prom.tmp" "$METRICS_DIR/backup.prom"
+
 echo "backup finished: db-$STAMP.sql.gz.age, vault-$STAMP.tar.gz.age (encrypted, copied to s3://$S3_BUCKET)"
