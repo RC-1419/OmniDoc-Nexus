@@ -50,6 +50,8 @@ jobs:
           echo "JWT_SECRET=$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" >> "$GITHUB_ENV"
       - name: Check that all code compiles
         run: python -m compileall -q omnidoc scripts
+      - name: Check that the database change scripts match the models
+        run: python -m scripts.migrations check
       - name: Unit and integration tests (with coverage)
         run: python -m pytest --cov=omnidoc --cov-report=term --cov-report=xml
       - name: API walkthrough (real database and file encryption; AI, vector store and email are stand-ins)
