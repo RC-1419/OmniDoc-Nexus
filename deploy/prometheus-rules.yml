@@ -1,5 +1,5 @@
-# Alert rules. With no Alertmanager they only show up on the Prometheus "Alerts" page (a red row means firing).
-# Check it from time to time, or add Alertmanager later to get an email.
+# Alert rules. Prometheus sends firing alerts to Alertmanager (deploy/alertmanager.yml), which emails them.
+# They also show on the Prometheus "Alerts" page (a red row means firing).
 groups:
   - name: omnidoc
     rules:

@@ -77,6 +77,7 @@ services:
     depends_on:
       - ui
       - api
+
   prometheus:
     logging: *logging
     image: prom/prometheus:v2.55.1
@@ -96,9 +97,24 @@ services:
     depends_on:
       - api
 
+  alertmanager:
+    logging: *logging
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    mem_limit: 64m
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    # no "ports": nothing outside Docker can reach it
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager_smtp_password:/etc/alertmanager/smtp_password:ro
+      - alertmanager_data:/alertmanager
+
 volumes:
   pgdata:
   vault:
   caddy_data:
   caddy_config:
   prometheus_data:
+  alertmanager_data:
