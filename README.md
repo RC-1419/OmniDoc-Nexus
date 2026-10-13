@@ -25,7 +25,7 @@ Everything runs on free tiers, every user's data is isolated from every other us
 | Vector store | Pinecone holds only vectors, ids and small filter fields. Document text stays encrypted in Postgres. |
 | Network | In production only Caddy is reachable (ports 80 and 443). The database, API and UI are internal. HTTPS is automatic. |
 | API surface | The interactive API docs are off in production. |
-| Backups | Nightly, on the server and in a private S3 bucket the server can only add to, never read or delete. |
+| Backups | Nightly and after every start, encrypted, on the server and in a private S3 bucket the server can only add to, never read or delete. |
 
 ## Architecture
 
@@ -219,22 +219,36 @@ On the server (`~/omnidoc`):
 | `.env` | Production secrets (server only, `chmod 600`) |
 | `prometheus.yml`, `prometheus-rules.yml` | What Prometheus scrapes and which alerts it shows |
 | `update.sh` | Pulls the new image and restarts (run by cron every 5 minutes) |
-| `backup.sh` | Nightly database dump and vault archive: 7 days kept on the server, and copied to a private S3 bucket (30 days, expired by a lifecycle rule) |
+| `backup.sh` | Database dump and vault archive, encrypted with age (nightly and after each start): 7 days kept on the server, and copied to a private S3 bucket (30 days, expired by a lifecycle rule) |
 
 See `deploy/env.production.example` for the production settings. Use new secrets in production, not your development ones.
 
 ### Backups and restore
 
-`backup.sh` writes `~/backups/db-<time>.sql.gz` and `vault-<time>.tar.gz`, then uploads both to the S3 bucket named at the top of the script. The server's IAM role may only add files to that bucket (`s3:PutObject` and `s3:ListBucket`), so a break-in on the server cannot read or erase old backups. Restore from your own computer, signed in to AWS. The `.env` file is deliberately not included: keep a copy of it in a password manager, because without `VAULT_KEY` the vault cannot be decrypted.
+`backup.sh` writes `~/backups/db-<time>.sql.gz.age` and `vault-<time>.tar.gz.age`, then uploads both to the S3 bucket named at the top of the script. Both files are encrypted with [age](https://github.com/FiloSottile/age) using a **public** key that is written in the script, so the server can lock backups but cannot open them. The **private key** (`omnidoc-backup-key.txt`, made with `age-keygen`) lives only on the owner's computer and in a password manager. **If it is lost, every backup is unreadable**: keep it in two places and never put it on the server or in git. The server's IAM role may only add files to the bucket (`s3:PutObject` and `s3:ListBucket`), so a break-in on the server cannot read or erase old backups. The `.env` file is deliberately not included: keep a copy of it in a password manager, because without `VAULT_KEY` the vault cannot be decrypted.
 
-To test a restore without touching live data:
+The server is stopped when not in use and cron does not catch up on missed runs, so `backup.sh` runs from two cron lines: nightly at 02:30 and 5 minutes after every start (`@reboot sleep 300 && flock -n /tmp/omnidoc-backup.lock /home/ubuntu/omnidoc/backup.sh`). Run `~/omnidoc/backup.sh` by hand before stopping the server to capture the day's changes. Local copies are deleted after 7 days; the S3 lifecycle rule removes bucket copies after 30. Logs: `journalctl -t omnidoc-backup`.
 
-```bash
-cd ~/omnidoc
+One-time setup of a new server: `sudo apt-get install -y age`, put the public key in `AGE_RECIPIENT` in `backup.sh`, and add the two cron lines.
+
+**Restore** is done on your own computer (it holds the private key). Download a pair of files (`scp` from the server, or `aws s3 cp` signed in to AWS), then:
+
+```bat
+age -d -i %USERPROFILE%\omnidoc-backup-key.txt -o db.sql.gz db-<time>.sql.gz.age
+age -d -i %USERPROFILE%\omnidoc-backup-key.txt -o vault.tar.gz vault-<time>.tar.gz.age
+python -c "import gzip,shutil;shutil.copyfileobj(gzip.open('db.sql.gz'),open('db.sql','wb'))"
+tar -tzf vault.tar.gz
+```
+
+To try the database dump without touching real data, load it into a scratch database on your own computer's Docker database, then drop it:
+
+```bat
 docker compose exec -T db psql -U omnidoc -d postgres -c "CREATE DATABASE restore_test;"
-gunzip -c ~/backups/db-<time>.sql.gz | docker compose exec -T db psql -U omnidoc -d restore_test -q
+docker compose exec -T db psql -U omnidoc -d restore_test -q < db.sql
 docker compose exec -T db psql -U omnidoc -d postgres -c "DROP DATABASE restore_test;"
 ```
+
+Delete `db.sql`, `db.sql.gz` and `vault.tar.gz` afterwards: they are not encrypted. Decrypting and opening the first encrypted backup was tested on a separate computer from the server.
 
 ### Database changes (migrations)
 
@@ -278,6 +292,5 @@ Email works through SMTP by default. To use the Gmail API instead, create an OAu
 
 ## Status
 
-Working: sign-up and login, uploads, family members, chat, email with single-use confirmation, versioned API, automatic deployment, nightly backups copied off the server, log retention, re-indexing, database migrations, Prometheus metrics with emailed alerts (Alertmanager), JMeter load tests, pytest suite, SonarQube analysis.
+Working: sign-up and login, uploads, family members, chat, email with single-use confirmation, versioned API, automatic deployment, nightly encrypted backups copied off the server, log retention, re-indexing, database migrations, Prometheus metrics with emailed alerts (Alertmanager), JMeter load tests, pytest suite, SonarQube analysis.
 Not enabled: the sendlib email sender (waiting for its API details). The Gmail API is optional and needs a published Google consent screen; email works through SMTP.
-Ideas for later: encrypting the database dump before it is uploaded, running `scripts.migrations check` in CI.
